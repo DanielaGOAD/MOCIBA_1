@@ -89,7 +89,7 @@ tipo_variable = st.radio(
     [
         "Uso de medidas de seguridad",
         "Medidas de seguridad",
-        "Ciberacoso"  # Nueva opción
+        "Experimento situaciones de ciberacoso"  # Nueva opción
     ]
 )
 
@@ -105,7 +105,7 @@ else:  # Ciberacoso
 
 variable = st.selectbox(
     "Seleccione la variable",
-    ["Cualquiera de las anteriores (Ciberacoso)"] if tipo_calculo == "cualquiera" else list(opciones.values())
+    ["Experimento ciberacoso"] if tipo_calculo == "cualquiera" else list(opciones.values())
 )
 
 # Para ciberacoso, usamos todas las columnas
@@ -201,7 +201,7 @@ if estado_1 != estado_2:
 
     # Título dinámico según el tipo de cálculo
     if tipo_calculo == "cualquiera":
-        titulo_subheader = "Ciberacoso (cualquiera de las situaciones)"
+        titulo_subheader = "Experimento ciberacoso"
     else:
         titulo_subheader = variable
     
