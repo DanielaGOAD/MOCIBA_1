@@ -40,19 +40,17 @@ ciberacoso = {
 
 @st.cache_data(show_spinner="Cargando datos desde Google Drive...")
 def cargar_datos_base():
-    file_ids = [
-        "1ojZcLZost0BM00yCGN8OLnu7XYyLpEYr"
-    ]
+    file_ids = ["1ojZcLZost0BM00yCGN8OLnu7XYyLpEYr"]
 
+    # Agregamos EDAD a las columnas requeridas
     columnas = (
-        ["ANIO", "CVE_ENT", "NOM_ENT", "SEXO", "FACTOR"]
+        ["ANIO", "CVE_ENT", "NOM_ENT", "SEXO", "FACTOR", "EDAD"]
         + list(uso_medidas_de_seguridad.keys())
         + list(medidas_de_seguridad.keys())
-        + [k for k in ciberacoso.keys() if k != "CUALQUIERA"]  # Excluir "CUALQUIERA" de las columnas
+        + [k for k in ciberacoso.keys() if k != "CUALQUIERA"]
     )
 
     dfs = []
-
     for file_id in file_ids:
         url = f"https://drive.google.com/uc?id={file_id}"
         output = io.BytesIO()
@@ -69,13 +67,13 @@ def cargar_datos_base():
 
     df_final = pd.concat(dfs, ignore_index=True)
     
-    # Convertir todas las columnas de preguntas a numérico
+    # Convertir columnas a numérico
     todas_preguntas = (
         list(uso_medidas_de_seguridad.keys()) + 
         list(medidas_de_seguridad.keys()) + 
         [k for k in ciberacoso.keys() if k != "CUALQUIERA"]
     )
-    for col in todas_preguntas:
+    for col in todas_preguntas + ["EDAD"]:
         df_final[col] = pd.to_numeric(df_final[col], errors='coerce')
         
     return df_final
@@ -86,136 +84,117 @@ st.title("📊 MOCIBA - Comparativa de Entidades")
 
 tipo_variable = st.radio(
     "Seleccione el indicador",
-    [
-        "Uso de medidas de seguridad",
-        "Medidas de seguridad",
-        "Ciberacoso"
-    ]
+    ["Uso de medidas de seguridad", "Medidas de seguridad", "Ciberacoso"]
 )
 
 if tipo_variable == "Uso de medidas de seguridad":
     opciones = uso_medidas_de_seguridad
 elif tipo_variable == "Medidas de seguridad":
     opciones = medidas_de_seguridad
-else:  # Ciberacoso
+else:
     opciones = ciberacoso
 
-# Ahora siempre mostramos el selectbox con todas las opciones
-variable = st.selectbox(
-    "Seleccione la variable",
-    list(opciones.values())
-)
-
-# Obtener la clave de la variable seleccionada
+variable = st.selectbox("Seleccione la variable", list(opciones.values()))
 variable_key = [k for k, v in opciones.items() if v == variable][0]
 
-# Determinar si es lógica OR o simple
 if variable_key == "CUALQUIERA":
-    variable_col = [k for k in ciberacoso.keys() if k != "CUALQUIERA"]  # Lista de P4_01 a P4_13
+    variable_col = [k for k in ciberacoso.keys() if k != "CUALQUIERA"]
     tipo_calculo = "cualquiera"
 else:
-    variable_col = variable_key  # Una sola columna
+    variable_col = variable_key
     tipo_calculo = "simple"
 
 sexo = st.selectbox("Sexo", ["Total", "Hombres", "Mujeres"])
 
-# Selección de dos estados para comparar
+# --- NUEVO: Filtro por rango de edad ---
+rangos_edad = {
+    "Todas las edades": None,
+    "12 a 19 años": (12, 19),
+    "20 a 29 años": (20, 29),
+    "30 a 39 años": (30, 39),
+    "40 a 49 años": (40, 49),
+    "50 a 59 años": (50, 59),
+    "60 y más años": (60, 120)
+}
+rango_edad_seleccionado = st.selectbox("Rango de edad", list(rangos_edad.keys()))
+
+# Selección de dos estados
 estados_unicos = sorted([x for x in df["NOM_ENT"].dropna().unique()])
 opciones_estado = ["NACIONAL"] + estados_unicos
 
 col1, col2 = st.columns(2)
-
 with col1:
-    estado_1 = st.selectbox("Estado 1 (comparar contra)", opciones_estado, index=0)
-
+    estado_1 = st.selectbox("Estado 1", opciones_estado, index=0)
 with col2:
-    estado_2 = st.selectbox("Estado 2 (comparar contra)", opciones_estado, index=1 if len(opciones_estado) > 1 else 0)
+    estado_2 = st.selectbox("Estado 2", opciones_estado, index=1 if len(opciones_estado) > 1 else 0)
 
 if estado_1 == estado_2:
-    st.warning("⚠️ Has seleccionado el mismo estado en ambos lados. Selecciona dos estados diferentes para comparar.")
+    st.warning("⚠️ Selecciona dos estados diferentes para comparar.")
 
-
-def calcular_porcentaje(df, variable_col, sexo, estado, tipo_calculo):
-    """
-    Calcula el porcentaje por año.
-    - tipo_calculo="simple": Una sola variable (ej: P1 == 1)
-    - tipo_calculo="cualquiera": Lógica OR (cualquiera de las variables == 1)
-    """
+def calcular_porcentaje(df, variable_col, sexo, estado, tipo_calculo, rango_edad_key):
     # Filtrar por sexo
     if sexo == "Hombres":
-        df_filtrado = df[df["SEXO"] == 1].copy()
+        df_f = df[df["SEXO"] == 1].copy()
     elif sexo == "Mujeres":
-        df_filtrado = df[df["SEXO"] == 2].copy()
+        df_f = df[df["SEXO"] == 2].copy()
     else:
-        df_filtrado = df[df["SEXO"].isin([1, 2])].copy()
+        df_f = df[df["SEXO"].isin([1, 2])].copy()
 
     # Filtrar por estado
     if estado != "NACIONAL":
-        df_filtrado = df_filtrado[df_filtrado["NOM_ENT"] == estado]
+        df_f = df_f[df_f["NOM_ENT"] == estado]
+
+    # Filtrar por edad
+    if rango_edad_key:
+        min_e, max_e = rango_edad_key
+        df_f = df_f[df_f["EDAD"].between(min_e, max_e)]
 
     resultados = []
-    
-    for anio, grupo in df_filtrado.groupby("ANIO"):
+    for anio, grupo in df_f.groupby("ANIO"):
         if tipo_calculo == "simple":
-            # Lógica simple: una sola variable
             numerador = grupo.loc[grupo[variable_col] == 1, "FACTOR"].sum()
             denominador = grupo.loc[grupo[variable_col].isin([1, 2]), "FACTOR"].sum()
         else:
-            # Lógica OR: cualquiera de las variables es 1
-            mascara_ciberacoso = grupo[variable_col].eq(1).any(axis=1)
-            
-            numerador = grupo.loc[mascara_ciberacoso, "FACTOR"].sum()
-            denominador = grupo["FACTOR"].sum()
+            # Lógica OR: cualquiera de las columnas P4_XX == 1
+            mascara = grupo[variable_col].eq(1).any(axis=1)
+            numerador = grupo.loc[mascara, "FACTOR"].sum()
+            denominador = grupo["FACTOR"].sum() # Total poblacional filtrado
 
         if denominador > 0:
             porcentaje = (numerador / denominador) * 100
         else:
             porcentaje = 0.0
 
-        resultados.append({
-            "ANIO": anio,
-            "PORCENTAJE": round(porcentaje, 2)
-        })
+        resultados.append({"ANIO": anio, "PORCENTAJE": round(porcentaje, 2)})
 
     return pd.DataFrame(resultados)
 
-
-# Solo ejecutar si los estados son diferentes
 if estado_1 != estado_2:
-    resultado_1 = calcular_porcentaje(df, variable_col, sexo, estado_1, tipo_calculo)
-    resultado_2 = calcular_porcentaje(df, variable_col, sexo, estado_2, tipo_calculo)
+    rango_key = rangos_edad[rango_edad_seleccionado]
+    
+    resultado_1 = calcular_porcentaje(df, variable_col, sexo, estado_1, tipo_calculo, rango_key)
+    resultado_2 = calcular_porcentaje(df, variable_col, sexo, estado_2, tipo_calculo, rango_key)
 
-    # Unir los dos resultados por año
     comparativa = pd.merge(
-        resultado_1, resultado_2,
-        on="ANIO", how="outer", suffixes=(f"_{estado_1}", f"_{estado_2}")
+        resultado_1, resultado_2, on="ANIO", how="outer", suffixes=(f"_{estado_1}", f"_{estado_2}")
     ).fillna(0)
 
-    # Renombrar columnas
     comparativa = comparativa.rename(columns={
         f"PORCENTAJE_{estado_1}": estado_1,
         f"PORCENTAJE_{estado_2}": estado_2
     })
-
     comparativa = comparativa[["ANIO", estado_1, estado_2]]
     comparativa["Diferencia (pp)"] = round(comparativa[estado_1] - comparativa[estado_2], 2)
 
     st.subheader(f"Comparativa: {variable}")
     st.dataframe(comparativa, use_container_width=True)
 
-    # Gráfico comparativo
     grafico_data = comparativa.melt(
-        id_vars=["ANIO"],
-        value_vars=[estado_1, estado_2],
-        var_name="Entidad",
-        value_name="Porcentaje"
+        id_vars=["ANIO"], value_vars=[estado_1, estado_2],
+        var_name="Entidad", value_name="Porcentaje"
     )
 
     st.line_chart(
-        grafico_data,
-        x="ANIO",
-        y="Porcentaje",
-        color="Entidad",
-        y_label="Porcentaje (%)",
-        x_label="Año"
+        grafico_data, x="ANIO", y="Porcentaje", color="Entidad",
+        y_label="Porcentaje (%)", x_label="Año"
     )
