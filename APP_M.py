@@ -40,17 +40,19 @@ ciberacoso = {
 
 @st.cache_data(show_spinner="Cargando datos desde Google Drive...")
 def cargar_datos_base():
-    file_ids = ["1ojZcLZost0BM00yCGN8OLnu7XYyLpEYr"]
+    file_ids = [
+        "1ojZcLZost0BM00yCGN8OLnu7XYyLpEYr"
+    ]
 
-    # Agregamos EDAD a las columnas requeridas
     columnas = (
-        ["ANIO", "CVE_ENT", "NOM_ENT", "SEXO", "FACTOR", "EDAD"]
+        ["ANIO", "CVE_ENT", "NOM_ENT", "SEXO", "FACTOR", "EDAD"]  # Agregamos EDAD
         + list(uso_medidas_de_seguridad.keys())
         + list(medidas_de_seguridad.keys())
         + [k for k in ciberacoso.keys() if k != "CUALQUIERA"]
     )
 
     dfs = []
+
     for file_id in file_ids:
         url = f"https://drive.google.com/uc?id={file_id}"
         output = io.BytesIO()
@@ -67,14 +69,17 @@ def cargar_datos_base():
 
     df_final = pd.concat(dfs, ignore_index=True)
     
-    # Convertir columnas a numérico
+    # Convertir todas las columnas de preguntas a numérico
     todas_preguntas = (
         list(uso_medidas_de_seguridad.keys()) + 
         list(medidas_de_seguridad.keys()) + 
         [k for k in ciberacoso.keys() if k != "CUALQUIERA"]
     )
-    for col in todas_preguntas + ["EDAD"]:
+    for col in todas_preguntas:
         df_final[col] = pd.to_numeric(df_final[col], errors='coerce')
+    
+    # Asegurar que EDAD sea numérico
+    df_final["EDAD"] = pd.to_numeric(df_final["EDAD"], errors='coerce')
         
     return df_final
 
@@ -84,117 +89,183 @@ st.title("📊 MOCIBA - Comparativa de Entidades")
 
 tipo_variable = st.radio(
     "Seleccione el indicador",
-    ["Uso de medidas de seguridad", "Medidas de seguridad", "Ciberacoso"]
+    [
+        "Uso de medidas de seguridad",
+        "Medidas de seguridad",
+        "Ciberacoso",
+        "Ciberacoso por rango de edad"  # Nueva opción
+    ]
 )
 
 if tipo_variable == "Uso de medidas de seguridad":
     opciones = uso_medidas_de_seguridad
 elif tipo_variable == "Medidas de seguridad":
     opciones = medidas_de_seguridad
-else:
+else:  # Ciberacoso o Ciberacoso por rango de edad
     opciones = ciberacoso
 
-variable = st.selectbox("Seleccione la variable", list(opciones.values()))
-variable_key = [k for k, v in opciones.items() if v == variable][0]
-
-if variable_key == "CUALQUIERA":
+# Mostrar selectbox de variable (excepto para "Ciberacoso por rango de edad" que siempre usa CUALQUIERA)
+if tipo_variable == "Ciberacoso por rango de edad":
+    variable = "Cualquiera de las anteriores (Ciberacoso general)"
+    variable_key = "CUALQUIERA"
     variable_col = [k for k in ciberacoso.keys() if k != "CUALQUIERA"]
     tipo_calculo = "cualquiera"
 else:
-    variable_col = variable_key
-    tipo_calculo = "simple"
+    variable = st.selectbox(
+        "Seleccione la variable",
+        list(opciones.values())
+    )
+    variable_key = [k for k, v in opciones.items() if v == variable][0]
+    
+    if variable_key == "CUALQUIERA":
+        variable_col = [k for k in ciberacoso.keys() if k != "CUALQUIERA"]
+        tipo_calculo = "cualquiera"
+    else:
+        variable_col = variable_key
+        tipo_calculo = "simple"
 
 sexo = st.selectbox("Sexo", ["Total", "Hombres", "Mujeres"])
 
-# --- NUEVO: Filtro por rango de edad ---
-rangos_edad = {
-    "Todas las edades": None,
-    "12 a 19 años": (12, 19),
-    "20 a 29 años": (20, 29),
-    "30 a 39 años": (30, 39),
-    "40 a 49 años": (40, 49),
-    "50 a 59 años": (50, 59),
-    "60 y más años": (60, 120)
-}
-rango_edad_seleccionado = st.selectbox("Rango de edad", list(rangos_edad.keys()))
+# --- NUEVA SECCIÓN: Rango de edad (solo para "Ciberacoso por rango de edad") ---
+if tipo_variable == "Ciberacoso por rango de edad":
+    st.subheader("📊 Filtro por rango de edad")
+    
+    # Opciones predefinidas
+    rango_predefinido = st.selectbox(
+        "Selecciona un rango predefinido",
+        ["Personalizado", "12-19 (Adolescentes)", "20-29 (Jóvenes adultos)", "30-59 (Adultos)", "60+ (Adultos mayores)"]
+    )
+    
+    if rango_predefinido == "Personalizado":
+        col_edad1, col_edad2 = st.columns(2)
+        with col_edad1:
+            edad_min = st.number_input("Edad mínima", min_value=12, max_value=100, value=12, step=1)
+        with col_edad2:
+            edad_max = st.number_input("Edad máxima", min_value=12, max_value=100, value=19, step=1)
+    elif rango_predefinido == "12-19 (Adolescentes)":
+        edad_min, edad_max = 12, 19
+    elif rango_predefinido == "20-29 (Jóvenes adultos)":
+        edad_min, edad_max = 20, 29
+    elif rango_predefinido == "30-59 (Adultos)":
+        edad_min, edad_max = 30, 59
+    else:  # 60+
+        edad_min, edad_max = 60, 100
+    
+    st.info(f"📌 Rango seleccionado: {edad_min} a {edad_max} años")
+else:
+    edad_min, edad_max = None, None
 
-# Selección de dos estados
+# Selección de dos estados para comparar
 estados_unicos = sorted([x for x in df["NOM_ENT"].dropna().unique()])
 opciones_estado = ["NACIONAL"] + estados_unicos
 
 col1, col2 = st.columns(2)
+
 with col1:
-    estado_1 = st.selectbox("Estado 1", opciones_estado, index=0)
+    estado_1 = st.selectbox("Estado 1 (comparar contra)", opciones_estado, index=0)
+
 with col2:
-    estado_2 = st.selectbox("Estado 2", opciones_estado, index=1 if len(opciones_estado) > 1 else 0)
+    estado_2 = st.selectbox("Estado 2 (comparar contra)", opciones_estado, index=1 if len(opciones_estado) > 1 else 0)
 
 if estado_1 == estado_2:
-    st.warning("⚠️ Selecciona dos estados diferentes para comparar.")
+    st.warning("⚠️ Has seleccionado el mismo estado en ambos lados. Selecciona dos estados diferentes para comparar.")
 
-def calcular_porcentaje(df, variable_col, sexo, estado, tipo_calculo, rango_edad_key):
+
+def calcular_porcentaje(df, variable_col, sexo, estado, tipo_calculo, edad_min=None, edad_max=None):
+    """
+    Calcula el porcentaje por año.
+    - tipo_calculo="simple": Una sola variable (ej: P1 == 1)
+    - tipo_calculo="cualquiera": Lógica OR (cualquiera de las variables == 1)
+    - edad_min/edad_max: Filtro opcional por rango de edad
+    """
     # Filtrar por sexo
     if sexo == "Hombres":
-        df_f = df[df["SEXO"] == 1].copy()
+        df_filtrado = df[df["SEXO"] == 1].copy()
     elif sexo == "Mujeres":
-        df_f = df[df["SEXO"] == 2].copy()
+        df_filtrado = df[df["SEXO"] == 2].copy()
     else:
-        df_f = df[df["SEXO"].isin([1, 2])].copy()
+        df_filtrado = df[df["SEXO"].isin([1, 2])].copy()
 
     # Filtrar por estado
     if estado != "NACIONAL":
-        df_f = df_f[df_f["NOM_ENT"] == estado]
-
-    # Filtrar por edad
-    if rango_edad_key:
-        min_e, max_e = rango_edad_key
-        df_f = df_f[df_f["EDAD"].between(min_e, max_e)]
+        df_filtrado = df_filtrado[df_filtrado["NOM_ENT"] == estado]
+    
+    # Filtrar por rango de edad (si se especifica)
+    if edad_min is not None and edad_max is not None:
+        df_filtrado = df_filtrado[
+            (df_filtrado["EDAD"] >= edad_min) & 
+            (df_filtrado["EDAD"] <= edad_max)
+        ].copy()
 
     resultados = []
-    for anio, grupo in df_f.groupby("ANIO"):
+    
+    for anio, grupo in df_filtrado.groupby("ANIO"):
         if tipo_calculo == "simple":
+            # Lógica simple: una sola variable
             numerador = grupo.loc[grupo[variable_col] == 1, "FACTOR"].sum()
             denominador = grupo.loc[grupo[variable_col].isin([1, 2]), "FACTOR"].sum()
         else:
-            # Lógica OR: cualquiera de las columnas P4_XX == 1
-            mascara = grupo[variable_col].eq(1).any(axis=1)
-            numerador = grupo.loc[mascara, "FACTOR"].sum()
-            denominador = grupo["FACTOR"].sum() # Total poblacional filtrado
+            # Lógica OR: cualquiera de las variables es 1
+            mascara_ciberacoso = grupo[variable_col].eq(1).any(axis=1)
+            
+            numerador = grupo.loc[mascara_ciberacoso, "FACTOR"].sum()
+            denominador = grupo["FACTOR"].sum()
 
         if denominador > 0:
             porcentaje = (numerador / denominador) * 100
         else:
             porcentaje = 0.0
 
-        resultados.append({"ANIO": anio, "PORCENTAJE": round(porcentaje, 2)})
+        resultados.append({
+            "ANIO": anio,
+            "PORCENTAJE": round(porcentaje, 2)
+        })
 
     return pd.DataFrame(resultados)
 
-if estado_1 != estado_2:
-    rango_key = rangos_edad[rango_edad_seleccionado]
-    
-    resultado_1 = calcular_porcentaje(df, variable_col, sexo, estado_1, tipo_calculo, rango_key)
-    resultado_2 = calcular_porcentaje(df, variable_col, sexo, estado_2, tipo_calculo, rango_key)
 
+# Solo ejecutar si los estados son diferentes
+if estado_1 != estado_2:
+    resultado_1 = calcular_porcentaje(df, variable_col, sexo, estado_1, tipo_calculo, edad_min, edad_max)
+    resultado_2 = calcular_porcentaje(df, variable_col, sexo, estado_2, tipo_calculo, edad_min, edad_max)
+
+    # Unir los dos resultados por año
     comparativa = pd.merge(
-        resultado_1, resultado_2, on="ANIO", how="outer", suffixes=(f"_{estado_1}", f"_{estado_2}")
+        resultado_1, resultado_2,
+        on="ANIO", how="outer", suffixes=(f"_{estado_1}", f"_{estado_2}")
     ).fillna(0)
 
+    # Renombrar columnas
     comparativa = comparativa.rename(columns={
         f"PORCENTAJE_{estado_1}": estado_1,
         f"PORCENTAJE_{estado_2}": estado_2
     })
+
     comparativa = comparativa[["ANIO", estado_1, estado_2]]
     comparativa["Diferencia (pp)"] = round(comparativa[estado_1] - comparativa[estado_2], 2)
 
-    st.subheader(f"Comparativa: {variable}")
+    # Título dinámico
+    if tipo_variable == "Ciberacoso por rango de edad":
+        titulo_subheader = f"Ciberacoso - Rango de edad: {edad_min} a {edad_max} años"
+    else:
+        titulo_subheader = variable
+    
+    st.subheader(f"Comparativa: {titulo_subheader}")
     st.dataframe(comparativa, use_container_width=True)
 
+    # Gráfico comparativo
     grafico_data = comparativa.melt(
-        id_vars=["ANIO"], value_vars=[estado_1, estado_2],
-        var_name="Entidad", value_name="Porcentaje"
+        id_vars=["ANIO"],
+        value_vars=[estado_1, estado_2],
+        var_name="Entidad",
+        value_name="Porcentaje"
     )
 
     st.line_chart(
-        grafico_data, x="ANIO", y="Porcentaje", color="Entidad",
-        y_label="Porcentaje (%)", x_label="Año"
+        grafico_data,
+        x="ANIO",
+        y="Porcentaje",
+        color="Entidad",
+        y_label="Porcentaje (%)",
+        x_label="Año"
     )
