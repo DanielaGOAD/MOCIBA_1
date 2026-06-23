@@ -265,8 +265,8 @@ def calcular_porcentaje(df, variable_col, sexo, estado, tipo_calculo, edad_min=N
 
 def calcular_ciberacoso_por_escolaridad(df, variable_col, estado, anio):
     """
-    Calcula el porcentaje de ciberacoso por nivel de escolaridad y sexo.
-    Retorna un DataFrame con columnas: Nivel_Escolaridad, Hombres, Mujeres
+    Calcula la distribución de víctimas de ciberacoso por nivel de escolaridad y sexo.
+    El porcentaje representa: De todas las víctimas de ese sexo, ¿qué porcentaje tiene ese nivel de escolaridad?
     """
     df_filtrado = df.copy()
     
@@ -280,28 +280,29 @@ def calcular_ciberacoso_por_escolaridad(df, variable_col, estado, anio):
     # Filtrar solo niveles válidos (1-11)
     df_filtrado = df_filtrado[df_filtrado["NIVEL"].isin([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])]
     
-    # Crear columna de nivel de escolaridad agrupado
-    df_filtrado["NIVEL_ESCOLARIDAD"] = df_filtrado["NIVEL"].apply(mapear_nivel_escolaridad)
-    
     # Identificar víctimas de ciberacoso (lógica OR)
     mascara_ciberacoso = df_filtrado[variable_col].eq(1).any(axis=1)
-    df_filtrado["VICTIMA"] = mascara_ciberacoso
+    df_victimas = df_filtrado[mascara_ciberacoso].copy()
+    
+    # Crear columna de nivel de escolaridad agrupado
+    df_victimas["NIVEL_ESCOLARIDAD"] = df_victimas["NIVEL"].apply(mapear_nivel_escolaridad)
     
     resultados = []
     
-    # Calcular para cada sexo y nivel de escolaridad
+    # Calcular para cada sexo
     for sexo_codigo, sexo_nombre in [(1, "Hombres"), (2, "Mujeres")]:
-        df_sexo = df_filtrado[df_filtrado["SEXO"] == sexo_codigo]
+        df_victimas_sexo = df_victimas[df_victimas["SEXO"] == sexo_codigo]
         
-        # Total de población por nivel de escolaridad
-        total_por_nivel = df_sexo.groupby("NIVEL_ESCOLARIDAD")["FACTOR"].sum()
+        # Total de víctimas de ese sexo
+        total_victimas_sexo = df_victimas_sexo["FACTOR"].sum()
         
-        # Total de víctimas por nivel de escolaridad
-        victimas_por_nivel = df_sexo[df_sexo["VICTIMA"]].groupby("NIVEL_ESCOLARIDAD")["FACTOR"].sum()
+        # Víctimas por nivel de escolaridad
+        victimas_por_nivel = df_victimas_sexo.groupby("NIVEL_ESCOLARIDAD")["FACTOR"].sum()
         
+        # Calcular porcentaje: víctimas del nivel / total de víctimas del sexo
         for nivel in ["Básica", "Media Superior", "Superior"]:
-            if nivel in total_por_nivel.index and total_por_nivel[nivel] > 0:
-                porcentaje = (victimas_por_nivel.get(nivel, 0) / total_por_nivel[nivel]) * 100
+            if total_victimas_sexo > 0:
+                porcentaje = (victimas_por_nivel.get(nivel, 0) / total_victimas_sexo) * 100
             else:
                 porcentaje = 0.0
             
@@ -333,7 +334,8 @@ if tipo_variable == "Ciberacoso por nivel de escolaridad":
         comparativa = pd.concat([tabla_1, tabla_2], axis=1)
         comparativa = comparativa.reset_index()
         
-        st.subheader(f"Ciberacoso por Nivel de Escolaridad - Año {anio_seleccionado}")
+        st.subheader(f"Distribución de Víctimas de Ciberacoso por Nivel de Escolaridad - Año {anio_seleccionado}")
+        st.info("💡 El porcentaje representa: De todas las víctimas de ciberacoso de ese sexo, ¿qué porcentaje tiene ese nivel de escolaridad?")
         st.dataframe(comparativa, use_container_width=True)
         
         # Gráfico de barras agrupadas
@@ -350,7 +352,7 @@ if tipo_variable == "Ciberacoso por nivel de escolaridad":
             y="PORCENTAJE",
             color="SEXO",
             x_label="Nivel de Escolaridad",
-            y_label="Porcentaje (%)"
+            y_label="Porcentaje de Víctimas (%)"
         )
 
 else:
