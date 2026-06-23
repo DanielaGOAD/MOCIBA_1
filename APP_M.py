@@ -20,8 +20,9 @@ medidas_de_seguridad = {
     "P2_8": "Otra"
 }
 
-# --- Grupo 3: Ciberacoso (nuevo)
+# --- Grupo 3: Ciberacoso
 ciberacoso = {
+    "CUALQUIERA": "Cualquiera de las anteriores (Ciberacoso general)",
     "P4_01": "Recibir correos electrónicos ofensivos o groseros",
     "P4_02": "Ser objeto de chismes o rumores en internet",
     "P4_03": "Recibir mensajes ofensivos o groseros por redes sociales",
@@ -43,12 +44,11 @@ def cargar_datos_base():
         "1ojZcLZost0BM00yCGN8OLnu7XYyLpEYr"
     ]
 
-    # Agregamos las columnas de ciberacoso
     columnas = (
         ["ANIO", "CVE_ENT", "NOM_ENT", "SEXO", "FACTOR"]
         + list(uso_medidas_de_seguridad.keys())
         + list(medidas_de_seguridad.keys())
-        + list(ciberacoso.keys())
+        + [k for k in ciberacoso.keys() if k != "CUALQUIERA"]  # Excluir "CUALQUIERA" de las columnas
     )
 
     dfs = []
@@ -73,7 +73,7 @@ def cargar_datos_base():
     todas_preguntas = (
         list(uso_medidas_de_seguridad.keys()) + 
         list(medidas_de_seguridad.keys()) + 
-        list(ciberacoso.keys())
+        [k for k in ciberacoso.keys() if k != "CUALQUIERA"]
     )
     for col in todas_preguntas:
         df_final[col] = pd.to_numeric(df_final[col], errors='coerce')
@@ -89,30 +89,33 @@ tipo_variable = st.radio(
     [
         "Uso de medidas de seguridad",
         "Medidas de seguridad",
-        "Experimento situaciones de ciberacoso"  # Nueva opción
+        "Ciberacoso"
     ]
 )
 
 if tipo_variable == "Uso de medidas de seguridad":
     opciones = uso_medidas_de_seguridad
-    tipo_calculo = "simple"
 elif tipo_variable == "Medidas de seguridad":
     opciones = medidas_de_seguridad
-    tipo_calculo = "simple"
 else:  # Ciberacoso
     opciones = ciberacoso
-    tipo_calculo = "cualquiera"  # Indicamos que es lógica OR
 
+# Ahora siempre mostramos el selectbox con todas las opciones
 variable = st.selectbox(
     "Seleccione la variable",
-    ["Experimento ciberacoso"] if tipo_calculo == "cualquiera" else list(opciones.values())
+    list(opciones.values())
 )
 
-# Para ciberacoso, usamos todas las columnas
-if tipo_calculo == "cualquiera":
-    variable_col = list(opciones.keys())  # Lista de todas las columnas P4_01 a P4_13
+# Obtener la clave de la variable seleccionada
+variable_key = [k for k, v in opciones.items() if v == variable][0]
+
+# Determinar si es lógica OR o simple
+if variable_key == "CUALQUIERA":
+    variable_col = [k for k in ciberacoso.keys() if k != "CUALQUIERA"]  # Lista de P4_01 a P4_13
+    tipo_calculo = "cualquiera"
 else:
-    variable_col = [k for k, v in opciones.items() if v == variable][0]
+    variable_col = variable_key  # Una sola columna
+    tipo_calculo = "simple"
 
 sexo = st.selectbox("Sexo", ["Total", "Hombres", "Mujeres"])
 
@@ -159,11 +162,9 @@ def calcular_porcentaje(df, variable_col, sexo, estado, tipo_calculo):
             denominador = grupo.loc[grupo[variable_col].isin([1, 2]), "FACTOR"].sum()
         else:
             # Lógica OR: cualquiera de las variables es 1
-            # Crear máscara booleana: True si CUALQUIERA columna == 1
             mascara_ciberacoso = grupo[variable_col].eq(1).any(axis=1)
             
             numerador = grupo.loc[mascara_ciberacoso, "FACTOR"].sum()
-            # Para ciberacoso, el denominador es el total de la población (todos tienen FACTOR)
             denominador = grupo["FACTOR"].sum()
 
         if denominador > 0:
@@ -199,13 +200,7 @@ if estado_1 != estado_2:
     comparativa = comparativa[["ANIO", estado_1, estado_2]]
     comparativa["Diferencia (pp)"] = round(comparativa[estado_1] - comparativa[estado_2], 2)
 
-    # Título dinámico según el tipo de cálculo
-    if tipo_calculo == "cualquiera":
-        titulo_subheader = "Experimento ciberacoso"
-    else:
-        titulo_subheader = variable
-    
-    st.subheader(f"Comparativa: {titulo_subheader}")
+    st.subheader(f"Comparativa: {variable}")
     st.dataframe(comparativa, use_container_width=True)
 
     # Gráfico comparativo
