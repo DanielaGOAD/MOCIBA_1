@@ -45,7 +45,7 @@ def cargar_datos_base():
     ]
 
     columnas = (
-        ["ANIO", "CVE_ENT", "NOM_ENT", "SEXO", "FACTOR", "EDAD", "NIVEL"]
+        ["ANIO", "CVE_ENT", "NOM_ENT", "SEXO", "FACTOR", "EDAD", "NIVEL", "P7_4"]  # Agregamos P7_4
         + list(uso_medidas_de_seguridad.keys())
         + list(medidas_de_seguridad.keys())
         + [k for k in ciberacoso.keys() if k != "CUALQUIERA"]
@@ -78,9 +78,10 @@ def cargar_datos_base():
     for col in todas_preguntas:
         df_final[col] = pd.to_numeric(df_final[col], errors='coerce')
     
-    # Asegurar que EDAD y NIVEL sean numéricos
+    # Asegurar que EDAD, NIVEL y P7_4 sean numéricos
     df_final["EDAD"] = pd.to_numeric(df_final["EDAD"], errors='coerce')
     df_final["NIVEL"] = pd.to_numeric(df_final["NIVEL"], errors='coerce')
+    df_final["P7_4"] = pd.to_numeric(df_final["P7_4"], errors='coerce')
         
     return df_final
 
@@ -109,16 +110,28 @@ tipo_variable = st.radio(
         "Uso de medidas de seguridad",
         "Medidas de seguridad",
         "Ciberacoso",
-        "Ciberacoso por nivel de escolaridad"
+        "Ciberacoso por nivel de escolaridad",
+        "Horas promedio de uso de internet"  # Nuevo indicador
     ]
 )
 
 # --- Lógica condicional según el indicador seleccionado ---
 if tipo_variable == "Ciberacoso por nivel de escolaridad":
-    # Para este indicador, no necesitamos seleccionar variable específica
     variable = "Cualquiera de las anteriores (Ciberacoso general)"
     variable_col = [k for k in ciberacoso.keys() if k != "CUALQUIERA"]
     tipo_calculo = "cualquiera"
+    
+    anios_disponibles = sorted(df["ANIO"].dropna().unique(), reverse=True)
+    anio_seleccionado = st.selectbox(
+        "Seleccione el año",
+        anios_disponibles,
+        index=0
+    )
+    
+elif tipo_variable == "Horas promedio de uso de internet":
+    # Para este indicador, no necesitamos seleccionar variable específica
+    variable_col = None
+    tipo_calculo = "horas_promedio"
     
     # Selector de año
     anios_disponibles = sorted(df["ANIO"].dropna().unique(), reverse=True)
@@ -127,6 +140,11 @@ if tipo_variable == "Ciberacoso por nivel de escolaridad":
         anios_disponibles,
         index=0
     )
+    
+    # Checkbox para filtrar solo víctimas de ciberacoso
+    solo_victimas = st.checkbox("🔍 Mostrar solo para víctimas de ciberacoso", value=False)
+    
+    anio_seleccionado = anio_seleccionado  # Mantener el valor
     
 else:
     # Para los otros indicadores
@@ -137,7 +155,6 @@ else:
     else:  # Ciberacoso
         opciones = ciberacoso
 
-    # Mostrar selectbox de variable
     variable = st.selectbox(
         "Seleccione la variable",
         list(opciones.values())
@@ -153,6 +170,7 @@ else:
         tipo_calculo = "simple"
     
     anio_seleccionado = None
+    solo_victimas = False
 
 sexo = st.selectbox("Sexo", ["Total", "Hombres", "Mujeres"])
 
@@ -206,18 +224,12 @@ if estado_1 == estado_2:
 def calcular_porcentaje(df, variable_col, sexo, estado, tipo_calculo, edad_min=None, edad_max=None, anio=None):
     """
     Calcula el porcentaje por año.
-    - tipo_calculo="simple": Una sola variable (ej: P1 == 1)
-    - tipo_calculo="cualquiera": Lógica OR (cualquiera de las variables == 1)
-    - edad_min/edad_max: Filtro opcional por rango de edad
-    - anio: Filtro opcional por año
     """
     df_filtrado = df.copy()
     
-    # Filtrar por año (si se especifica)
     if anio is not None:
         df_filtrado = df_filtrado[df_filtrado["ANIO"] == anio]
 
-    # Filtrar por sexo
     if sexo == "Hombres":
         df_filtrado = df_filtrado[df_filtrado["SEXO"] == 1].copy()
     elif sexo == "Mujeres":
@@ -225,11 +237,9 @@ def calcular_porcentaje(df, variable_col, sexo, estado, tipo_calculo, edad_min=N
     else:
         df_filtrado = df_filtrado[df_filtrado["SEXO"].isin([1, 2])].copy()
 
-    # Filtrar por estado
     if estado != "NACIONAL":
         df_filtrado = df_filtrado[df_filtrado["NOM_ENT"] == estado]
     
-    # Filtrar por rango de edad (si se especifica)
     if edad_min is not None and edad_max is not None:
         df_filtrado = df_filtrado[
             (df_filtrado["EDAD"] >= edad_min) & 
@@ -240,13 +250,10 @@ def calcular_porcentaje(df, variable_col, sexo, estado, tipo_calculo, edad_min=N
     
     for anio_grupo, grupo in df_filtrado.groupby("ANIO"):
         if tipo_calculo == "simple":
-            # Lógica simple: una sola variable
             numerador = grupo.loc[grupo[variable_col] == 1, "FACTOR"].sum()
             denominador = grupo.loc[grupo[variable_col].isin([1, 2]), "FACTOR"].sum()
         else:
-            # Lógica OR: cualquiera de las variables es 1
             mascara_ciberacoso = grupo[variable_col].eq(1).any(axis=1)
-            
             numerador = grupo.loc[mascara_ciberacoso, "FACTOR"].sum()
             denominador = grupo["FACTOR"].sum()
 
@@ -266,40 +273,27 @@ def calcular_porcentaje(df, variable_col, sexo, estado, tipo_calculo, edad_min=N
 def calcular_ciberacoso_por_escolaridad(df, variable_col, estado, anio):
     """
     Calcula la distribución de víctimas de ciberacoso por nivel de escolaridad y sexo.
-    El porcentaje representa: De todas las víctimas de ese sexo, ¿qué porcentaje tiene ese nivel de escolaridad?
     """
     df_filtrado = df.copy()
-    
-    # Filtrar por año
     df_filtrado = df_filtrado[df_filtrado["ANIO"] == anio]
     
-    # Filtrar por estado
     if estado != "NACIONAL":
         df_filtrado = df_filtrado[df_filtrado["NOM_ENT"] == estado]
     
-    # Filtrar solo niveles válidos (1-11)
     df_filtrado = df_filtrado[df_filtrado["NIVEL"].isin([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])]
     
-    # Identificar víctimas de ciberacoso (lógica OR)
     mascara_ciberacoso = df_filtrado[variable_col].eq(1).any(axis=1)
     df_victimas = df_filtrado[mascara_ciberacoso].copy()
     
-    # Crear columna de nivel de escolaridad agrupado
     df_victimas["NIVEL_ESCOLARIDAD"] = df_victimas["NIVEL"].apply(mapear_nivel_escolaridad)
     
     resultados = []
     
-    # Calcular para cada sexo
     for sexo_codigo, sexo_nombre in [(1, "Hombres"), (2, "Mujeres")]:
         df_victimas_sexo = df_victimas[df_victimas["SEXO"] == sexo_codigo]
-        
-        # Total de víctimas de ese sexo
         total_victimas_sexo = df_victimas_sexo["FACTOR"].sum()
-        
-        # Víctimas por nivel de escolaridad
         victimas_por_nivel = df_victimas_sexo.groupby("NIVEL_ESCOLARIDAD")["FACTOR"].sum()
         
-        # Calcular porcentaje: víctimas del nivel / total de víctimas del sexo
         for nivel in ["Básica", "Media Superior", "Superior"]:
             if total_victimas_sexo > 0:
                 porcentaje = (victimas_por_nivel.get(nivel, 0) / total_victimas_sexo) * 100
@@ -315,22 +309,56 @@ def calcular_ciberacoso_por_escolaridad(df, variable_col, estado, anio):
     return pd.DataFrame(resultados)
 
 
+def calcular_horas_promedio_internet(df, estado, anio, solo_victimas=False):
+    """
+    Calcula las horas promedio de uso de internet al día.
+    - solo_victimas: Si es True, calcula solo para víctimas de ciberacoso
+    """
+    df_filtrado = df.copy()
+    
+    # Filtrar por año
+    df_filtrado = df_filtrado[df_filtrado["ANIO"] == anio]
+    
+    # Filtrar por estado
+    if estado != "NACIONAL":
+        df_filtrado = df_filtrado[df_filtrado["NOM_ENT"] == estado]
+    
+    # Filtrar valores válidos de P7_4 (excluir 98 que es "No especificado")
+    df_filtrado = df_filtrado[df_filtrado["P7_4"] < 98]
+    
+    # Si solo_victimas es True, filtrar solo víctimas de ciberacoso
+    if solo_victimas:
+        columnas_ciberacoso = [k for k in ciberacoso.keys() if k != "CUALQUIERA"]
+        mascara_ciberacoso = df_filtrado[columnas_ciberacoso].eq(1).any(axis=1)
+        df_filtrado = df_filtrado[mascara_ciberacoso]
+    
+    # Calcular promedio ponderado: SUM(P7_4 * FACTOR) / SUM(FACTOR)
+    if len(df_filtrado) > 0:
+        suma_ponderada = (df_filtrado["P7_4"] * df_filtrado["FACTOR"]).sum()
+        suma_factor = df_filtrado["FACTOR"].sum()
+        
+        if suma_factor > 0:
+            horas_promedio = suma_ponderada / suma_factor
+        else:
+            horas_promedio = 0.0
+    else:
+        horas_promedio = 0.0
+    
+    return round(horas_promedio, 2)
+
+
 # --- Lógica de visualización según el indicador ---
 if tipo_variable == "Ciberacoso por nivel de escolaridad":
     if estado_1 != estado_2:
-        # Calcular para ambos estados
         resultado_1 = calcular_ciberacoso_por_escolaridad(df, variable_col, estado_1, anio_seleccionado)
         resultado_2 = calcular_ciberacoso_por_escolaridad(df, variable_col, estado_2, anio_seleccionado)
         
-        # Pivotar para mostrar en formato de tabla
         tabla_1 = resultado_1.pivot(index="NIVEL_ESCOLARIDAD", columns="SEXO", values="PORCENTAJE").fillna(0)
         tabla_2 = resultado_2.pivot(index="NIVEL_ESCOLARIDAD", columns="SEXO", values="PORCENTAJE").fillna(0)
         
-        # Renombrar columnas
         tabla_1.columns = [f"{col} - {estado_1}" for col in tabla_1.columns]
         tabla_2.columns = [f"{col} - {estado_2}" for col in tabla_2.columns]
         
-        # Unir tablas
         comparativa = pd.concat([tabla_1, tabla_2], axis=1)
         comparativa = comparativa.reset_index()
         
@@ -338,7 +366,6 @@ if tipo_variable == "Ciberacoso por nivel de escolaridad":
         st.info("💡 El porcentaje representa: De todas las víctimas de ciberacoso de ese sexo, ¿qué porcentaje tiene ese nivel de escolaridad?")
         st.dataframe(comparativa, use_container_width=True)
         
-        # Gráfico de barras agrupadas
         grafico_data = resultado_1.copy()
         grafico_data["ENTIDAD"] = estado_1
         grafico_data2 = resultado_2.copy()
@@ -355,19 +382,48 @@ if tipo_variable == "Ciberacoso por nivel de escolaridad":
             y_label="Porcentaje de Víctimas (%)"
         )
 
+elif tipo_variable == "Horas promedio de uso de internet":
+    if estado_1 != estado_2:
+        # Calcular horas promedio para ambos estados
+        horas_1 = calcular_horas_promedio_internet(df, estado_1, anio_seleccionado, solo_victimas)
+        horas_2 = calcular_horas_promedio_internet(df, estado_2, anio_seleccionado, solo_victimas)
+        
+        # Crear tabla comparativa
+        comparativa = pd.DataFrame({
+            "Entidad": [estado_1, estado_2],
+            "Horas Promedio al Día": [horas_1, horas_2],
+            "Diferencia (horas)": [round(horas_1 - horas_2, 2), round(horas_2 - horas_1, 2)]
+        })
+        
+        # Título dinámico
+        if solo_victimas:
+            titulo = f"Horas Promedio de Uso de Internet - Solo Víctimas de Ciberacoso - Año {anio_seleccionado}"
+        else:
+            titulo = f"Horas Promedio de Uso de Internet - Año {anio_seleccionado}"
+        
+        st.subheader(titulo)
+        st.info("💡 Promedio ponderado de horas de uso de internet al día (excluyendo valores no especificados)")
+        st.dataframe(comparativa, use_container_width=True, hide_index=True)
+        
+        # Gráfico de barras
+        st.bar_chart(
+            comparativa,
+            x="Entidad",
+            y="Horas Promedio al Día",
+            y_label="Horas al Día"
+        )
+
 else:
     # Lógica original para los otros indicadores
     if estado_1 != estado_2:
         resultado_1 = calcular_porcentaje(df, variable_col, sexo, estado_1, tipo_calculo, edad_min, edad_max)
         resultado_2 = calcular_porcentaje(df, variable_col, sexo, estado_2, tipo_calculo, edad_min, edad_max)
 
-        # Unir los dos resultados por año
         comparativa = pd.merge(
             resultado_1, resultado_2,
             on="ANIO", how="outer", suffixes=(f"_{estado_1}", f"_{estado_2}")
         ).fillna(0)
 
-        # Renombrar columnas
         comparativa = comparativa.rename(columns={
             f"PORCENTAJE_{estado_1}": estado_1,
             f"PORCENTAJE_{estado_2}": estado_2
@@ -376,7 +432,6 @@ else:
         comparativa = comparativa[["ANIO", estado_1, estado_2]]
         comparativa["Diferencia (pp)"] = round(comparativa[estado_1] - comparativa[estado_2], 2)
 
-        # Título dinámico
         if filtro_edad_activo:
             titulo_subheader = f"{variable} - Rango de edad: {edad_min} a {edad_max} años"
         else:
@@ -385,7 +440,6 @@ else:
         st.subheader(f"Comparativa: {titulo_subheader}")
         st.dataframe(comparativa, use_container_width=True)
 
-        # Gráfico comparativo
         grafico_data = comparativa.melt(
             id_vars=["ANIO"],
             value_vars=[estado_1, estado_2],
