@@ -45,7 +45,7 @@ def cargar_datos_base():
     ]
 
     columnas = (
-        ["ANIO", "CVE_ENT", "NOM_ENT", "SEXO", "FACTOR", "EDAD", "NIVEL", "P7_4"]  # Agregamos P7_4
+        ["ANIO", "CVE_ENT", "NOM_ENT", "SEXO", "FACTOR", "EDAD", "NIVEL", "P7_4"]
         + list(uso_medidas_de_seguridad.keys())
         + list(medidas_de_seguridad.keys())
         + [k for k in ciberacoso.keys() if k != "CUALQUIERA"]
@@ -111,7 +111,7 @@ tipo_variable = st.radio(
         "Medidas de seguridad",
         "Ciberacoso",
         "Ciberacoso por nivel de escolaridad",
-        "Horas promedio de uso de internet"  # Nuevo indicador
+        "Horas promedio de uso de internet"
     ]
 )
 
@@ -129,22 +129,13 @@ if tipo_variable == "Ciberacoso por nivel de escolaridad":
     )
     
 elif tipo_variable == "Horas promedio de uso de internet":
-    # Para este indicador, no necesitamos seleccionar variable específica
     variable_col = None
     tipo_calculo = "horas_promedio"
-    
-    # Selector de año
-    anios_disponibles = sorted(df["ANIO"].dropna().unique(), reverse=True)
-    anio_seleccionado = st.selectbox(
-        "Seleccione el año",
-        anios_disponibles,
-        index=0
-    )
     
     # Checkbox para filtrar solo víctimas de ciberacoso
     solo_victimas = st.checkbox("🔍 Mostrar solo para víctimas de ciberacoso", value=False)
     
-    anio_seleccionado = anio_seleccionado  # Mantener el valor
+    anio_seleccionado = None  # No se usa para este indicador
     
 else:
     # Para los otros indicadores
@@ -309,15 +300,12 @@ def calcular_ciberacoso_por_escolaridad(df, variable_col, estado, anio):
     return pd.DataFrame(resultados)
 
 
-def calcular_horas_promedio_internet(df, estado, anio, solo_victimas=False):
+def calcular_horas_promedio_internet(df, estado, solo_victimas=False):
     """
-    Calcula las horas promedio de uso de internet al día.
+    Calcula las horas promedio de uso de internet al día por año (histórico).
     - solo_victimas: Si es True, calcula solo para víctimas de ciberacoso
     """
     df_filtrado = df.copy()
-    
-    # Filtrar por año
-    df_filtrado = df_filtrado[df_filtrado["ANIO"] == anio]
     
     # Filtrar por estado
     if estado != "NACIONAL":
@@ -332,19 +320,27 @@ def calcular_horas_promedio_internet(df, estado, anio, solo_victimas=False):
         mascara_ciberacoso = df_filtrado[columnas_ciberacoso].eq(1).any(axis=1)
         df_filtrado = df_filtrado[mascara_ciberacoso]
     
-    # Calcular promedio ponderado: SUM(P7_4 * FACTOR) / SUM(FACTOR)
-    if len(df_filtrado) > 0:
-        suma_ponderada = (df_filtrado["P7_4"] * df_filtrado["FACTOR"]).sum()
-        suma_factor = df_filtrado["FACTOR"].sum()
-        
-        if suma_factor > 0:
-            horas_promedio = suma_ponderada / suma_factor
+    resultados = []
+    
+    # Calcular promedio ponderado por año
+    for anio, grupo in df_filtrado.groupby("ANIO"):
+        if len(grupo) > 0:
+            suma_ponderada = (grupo["P7_4"] * grupo["FACTOR"]).sum()
+            suma_factor = grupo["FACTOR"].sum()
+            
+            if suma_factor > 0:
+                horas_promedio = suma_ponderada / suma_factor
+            else:
+                horas_promedio = 0.0
         else:
             horas_promedio = 0.0
-    else:
-        horas_promedio = 0.0
+        
+        resultados.append({
+            "ANIO": anio,
+            "HORAS_PROMEDIO": round(horas_promedio, 2)
+        })
     
-    return round(horas_promedio, 2)
+    return pd.DataFrame(resultados)
 
 
 # --- Lógica de visualización según el indicador ---
@@ -384,33 +380,50 @@ if tipo_variable == "Ciberacoso por nivel de escolaridad":
 
 elif tipo_variable == "Horas promedio de uso de internet":
     if estado_1 != estado_2:
-        # Calcular horas promedio para ambos estados
-        horas_1 = calcular_horas_promedio_internet(df, estado_1, anio_seleccionado, solo_victimas)
-        horas_2 = calcular_horas_promedio_internet(df, estado_2, anio_seleccionado, solo_victimas)
+        # Calcular horas promedio históricas para ambos estados
+        resultado_1 = calcular_horas_promedio_internet(df, estado_1, solo_victimas)
+        resultado_2 = calcular_horas_promedio_internet(df, estado_2, solo_victimas)
         
-        # Crear tabla comparativa
-        comparativa = pd.DataFrame({
-            "Entidad": [estado_1, estado_2],
-            "Horas Promedio al Día": [horas_1, horas_2],
-            "Diferencia (horas)": [round(horas_1 - horas_2, 2), round(horas_2 - horas_1, 2)]
+        # Unir los dos resultados por año
+        comparativa = pd.merge(
+            resultado_1, resultado_2,
+            on="ANIO", how="outer", suffixes=(f"_{estado_1}", f"_{estado_2}")
+        ).fillna(0)
+        
+        # Renombrar columnas
+        comparativa = comparativa.rename(columns={
+            f"HORAS_PROMEDIO_{estado_1}": estado_1,
+            f"HORAS_PROMEDIO_{estado_2}": estado_2
         })
+        
+        comparativa = comparativa[["ANIO", estado_1, estado_2]]
+        comparativa["Diferencia (horas)"] = round(comparativa[estado_1] - comparativa[estado_2], 2)
         
         # Título dinámico
         if solo_victimas:
-            titulo = f"Horas Promedio de Uso de Internet - Solo Víctimas de Ciberacoso - Año {anio_seleccionado}"
+            titulo = "Horas Promedio de Uso de Internet - Solo Víctimas de Ciberacoso"
         else:
-            titulo = f"Horas Promedio de Uso de Internet - Año {anio_seleccionado}"
+            titulo = "Horas Promedio de Uso de Internet - Población General"
         
         st.subheader(titulo)
         st.info("💡 Promedio ponderado de horas de uso de internet al día (excluyendo valores no especificados)")
-        st.dataframe(comparativa, use_container_width=True, hide_index=True)
+        st.dataframe(comparativa, use_container_width=True)
         
-        # Gráfico de barras
-        st.bar_chart(
-            comparativa,
-            x="Entidad",
-            y="Horas Promedio al Día",
-            y_label="Horas al Día"
+        # Gráfico de líneas comparativo
+        grafico_data = comparativa.melt(
+            id_vars=["ANIO"],
+            value_vars=[estado_1, estado_2],
+            var_name="Entidad",
+            value_name="Horas Promedio"
+        )
+        
+        st.line_chart(
+            grafico_data,
+            x="ANIO",
+            y="Horas Promedio",
+            color="Entidad",
+            y_label="Horas al Día",
+            x_label="Año"
         )
 
 else:
