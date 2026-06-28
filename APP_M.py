@@ -38,6 +38,23 @@ ciberacoso = {
     "P4_13": "Otro tipo de ciberacoso"
 }
 
+# --- Grupo 4: Frecuencia de mensajes ofensivos (nuevo)
+frecuencia_mensajes = {
+    "P9_01": "Recibir mensajes ofensivos, con insultos o burlas",
+    "P9_02": "Recibir mensajes con amenazas",
+    "P9_03": "Recibir mensajes sexuales no deseados",
+    "P9_04": "Que alguien se hiciera pasar por usted",
+    "P9_05": "Que publicaran información falsa o vergonzosa sobre usted",
+    "P9_06": "Que alguien compartiera sus datos personales sin permiso",
+    "P9_07": "Que alguien publicara fotos o videos suyos sin permiso",
+    "P9_08": "Ser excluido(a) o ignorado(a) en redes sociales o juegos",
+    "P9_09": "Recibir correos electrónicos ofensivos o groseros",
+    "P9_10": "Ser objeto de chismes o rumores en internet",
+    "P9_11": "Que alguien lo/la acosara sexualmente por internet",
+    "P9_12": "Recibir propuestas de encuentros sexuales no deseados",
+    "P9_13": "Otro tipo de acoso"
+}
+
 @st.cache_data(show_spinner="Cargando datos desde Google Drive...")
 def cargar_datos_base():
     file_ids = [
@@ -49,6 +66,7 @@ def cargar_datos_base():
         + list(uso_medidas_de_seguridad.keys())
         + list(medidas_de_seguridad.keys())
         + [k for k in ciberacoso.keys() if k != "CUALQUIERA"]
+        + list(frecuencia_mensajes.keys())  # Agregamos P9_01 a P9_13
     )
 
     dfs = []
@@ -73,7 +91,8 @@ def cargar_datos_base():
     todas_preguntas = (
         list(uso_medidas_de_seguridad.keys()) + 
         list(medidas_de_seguridad.keys()) + 
-        [k for k in ciberacoso.keys() if k != "CUALQUIERA"]
+        [k for k in ciberacoso.keys() if k != "CUALQUIERA"] +
+        list(frecuencia_mensajes.keys())
     )
     for col in todas_preguntas:
         df_final[col] = pd.to_numeric(df_final[col], errors='coerce')
@@ -111,7 +130,8 @@ tipo_variable = st.radio(
         "Medidas de seguridad",
         "Ciberacoso",
         "Ciberacoso por nivel de escolaridad",
-        "Horas promedio de uso de internet"
+        "Horas promedio de uso de internet",
+        "Frecuencia de mensajes ofensivos"  # Nuevo indicador
     ]
 )
 
@@ -132,10 +152,28 @@ elif tipo_variable == "Horas promedio de uso de internet":
     variable_col = None
     tipo_calculo = "horas_promedio"
     
-    # Checkbox para filtrar solo víctimas de ciberacoso
     solo_victimas = st.checkbox("🔍 Mostrar solo para víctimas de ciberacoso", value=False)
     
-    anio_seleccionado = None  # No se usa para este indicador
+    anio_seleccionado = None
+    
+elif tipo_variable == "Frecuencia de mensajes ofensivos":
+    # Selector de variable específica (P9_01 a P9_13)
+    variable = st.selectbox(
+        "Seleccione el tipo de acoso",
+        list(frecuencia_mensajes.values())
+    )
+    
+    variable_key = [k for k, v in frecuencia_mensajes.items() if v == variable][0]
+    variable_col = variable_key
+    tipo_calculo = "frecuencia"
+    
+    # Selector de año
+    anios_disponibles = sorted(df["ANIO"].dropna().unique(), reverse=True)
+    anio_seleccionado = st.selectbox(
+        "Seleccione el año",
+        anios_disponibles,
+        index=0
+    )
     
 else:
     # Para los otros indicadores
@@ -303,18 +341,14 @@ def calcular_ciberacoso_por_escolaridad(df, variable_col, estado, anio):
 def calcular_horas_promedio_internet(df, estado, solo_victimas=False):
     """
     Calcula las horas promedio de uso de internet al día por año (histórico).
-    - solo_victimas: Si es True, calcula solo para víctimas de ciberacoso
     """
     df_filtrado = df.copy()
     
-    # Filtrar por estado
     if estado != "NACIONAL":
         df_filtrado = df_filtrado[df_filtrado["NOM_ENT"] == estado]
     
-    # Filtrar valores válidos de P7_4 (excluir 98 que es "No especificado")
     df_filtrado = df_filtrado[df_filtrado["P7_4"] < 98]
     
-    # Si solo_victimas es True, filtrar solo víctimas de ciberacoso
     if solo_victimas:
         columnas_ciberacoso = [k for k in ciberacoso.keys() if k != "CUALQUIERA"]
         mascara_ciberacoso = df_filtrado[columnas_ciberacoso].eq(1).any(axis=1)
@@ -322,7 +356,6 @@ def calcular_horas_promedio_internet(df, estado, solo_victimas=False):
     
     resultados = []
     
-    # Calcular promedio ponderado por año
     for anio, grupo in df_filtrado.groupby("ANIO"):
         if len(grupo) > 0:
             suma_ponderada = (grupo["P7_4"] * grupo["FACTOR"]).sum()
@@ -338,6 +371,55 @@ def calcular_horas_promedio_internet(df, estado, solo_victimas=False):
         resultados.append({
             "ANIO": anio,
             "HORAS_PROMEDIO": round(horas_promedio, 2)
+        })
+    
+    return pd.DataFrame(resultados)
+
+
+def calcular_frecuencia_mensajes(df, variable_col, estado, anio):
+    """
+    Calcula la distribución de frecuencias de mensajes ofensivos por sexo.
+    Valores: 1=Muchas veces, 2=Algunas veces, 3=Pocas veces, 4=Una vez
+    """
+    df_filtrado = df.copy()
+    
+    # Filtrar por año
+    df_filtrado = df_filtrado[df_filtrado["ANIO"] == anio]
+    
+    # Filtrar por estado
+    if estado != "NACIONAL":
+        df_filtrado = df_filtrado[df_filtrado["NOM_ENT"] == estado]
+    
+    # Filtrar solo sexo 1 y 2
+    df_filtrado = df_filtrado[df_filtrado["SEXO"].isin([1, 2])]
+    
+    resultados = []
+    
+    # Calcular para cada sexo
+    for sexo_codigo, sexo_nombre in [(1, "Hombres"), (2, "Mujeres")]:
+        df_sexo = df_filtrado[df_filtrado["SEXO"] == sexo_codigo]
+        
+        # Denominador: todos los que respondieron 1, 2, 3 o 4
+        denominador = df_sexo[df_sexo[variable_col].isin([1, 2, 3, 4])]["FACTOR"].sum()
+        
+        if denominador > 0:
+            # Muchas veces (1)
+            muchas_veces = (df_sexo[df_sexo[variable_col] == 1]["FACTOR"].sum() / denominador) * 100
+            # Algunas veces (2)
+            algunas_veces = (df_sexo[df_sexo[variable_col] == 2]["FACTOR"].sum() / denominador) * 100
+            # Pocas veces (3)
+            pocas_veces = (df_sexo[df_sexo[variable_col] == 3]["FACTOR"].sum() / denominador) * 100
+            # Una vez (4)
+            una_vez = (df_sexo[df_sexo[variable_col] == 4]["FACTOR"].sum() / denominador) * 100
+        else:
+            muchas_veces = algunas_veces = pocas_veces = una_vez = 0.0
+        
+        resultados.append({
+            "SEXO": sexo_nombre,
+            "Muchas veces": round(muchas_veces, 2),
+            "Algunas veces": round(algunas_veces, 2),
+            "Pocas veces": round(pocas_veces, 2),
+            "Una vez": round(una_vez, 2)
         })
     
     return pd.DataFrame(resultados)
@@ -380,17 +462,14 @@ if tipo_variable == "Ciberacoso por nivel de escolaridad":
 
 elif tipo_variable == "Horas promedio de uso de internet":
     if estado_1 != estado_2:
-        # Calcular horas promedio históricas para ambos estados
         resultado_1 = calcular_horas_promedio_internet(df, estado_1, solo_victimas)
         resultado_2 = calcular_horas_promedio_internet(df, estado_2, solo_victimas)
         
-        # Unir los dos resultados por año
         comparativa = pd.merge(
             resultado_1, resultado_2,
             on="ANIO", how="outer", suffixes=(f"_{estado_1}", f"_{estado_2}")
         ).fillna(0)
         
-        # Renombrar columnas
         comparativa = comparativa.rename(columns={
             f"HORAS_PROMEDIO_{estado_1}": estado_1,
             f"HORAS_PROMEDIO_{estado_2}": estado_2
@@ -399,7 +478,6 @@ elif tipo_variable == "Horas promedio de uso de internet":
         comparativa = comparativa[["ANIO", estado_1, estado_2]]
         comparativa["Diferencia (horas)"] = round(comparativa[estado_1] - comparativa[estado_2], 2)
         
-        # Título dinámico
         if solo_victimas:
             titulo = "Horas Promedio de Uso de Internet - Solo Víctimas de Ciberacoso"
         else:
@@ -409,7 +487,6 @@ elif tipo_variable == "Horas promedio de uso de internet":
         st.info("💡 Promedio ponderado de horas de uso de internet al día (excluyendo valores no especificados)")
         st.dataframe(comparativa, use_container_width=True)
         
-        # Gráfico de líneas comparativo
         grafico_data = comparativa.melt(
             id_vars=["ANIO"],
             value_vars=[estado_1, estado_2],
@@ -424,6 +501,63 @@ elif tipo_variable == "Horas promedio de uso de internet":
             color="Entidad",
             y_label="Horas al Día",
             x_label="Año"
+        )
+
+elif tipo_variable == "Frecuencia de mensajes ofensivos":
+    if estado_1 != estado_2:
+        # Calcular frecuencia para ambos estados
+        resultado_1 = calcular_frecuencia_mensajes(df, variable_col, estado_1, anio_seleccionado)
+        resultado_2 = calcular_frecuencia_mensajes(df, variable_col, estado_2, anio_seleccionado)
+        
+        # Pivotar para mostrar en formato de tabla
+        tabla_1 = resultado_1.set_index("SEXO")
+        tabla_2 = resultado_2.set_index("SEXO")
+        
+        # Renombrar columnas
+        tabla_1.columns = [f"{col} - {estado_1}" for col in tabla_1.columns]
+        tabla_2.columns = [f"{col} - {estado_2}" for col in tabla_2.columns]
+        
+        # Unir tablas
+        comparativa = pd.concat([tabla_1, tabla_2], axis=1)
+        comparativa = comparativa.reset_index()
+        comparativa = comparativa.rename(columns={"index": "Sexo"})
+        
+        st.subheader(f"Frecuencia de {variable} - Año {anio_seleccionado}")
+        st.info("💡 Distribución porcentual de la frecuencia de recibir mensajes ofensivos (Muchas veces, Algunas veces, Pocas veces, Una vez)")
+        st.dataframe(comparativa, use_container_width=True)
+        
+        # Gráfico de barras agrupadas
+        # Transformar datos para el gráfico
+        frecuencias = ["Muchas veces", "Algunas veces", "Pocas veces", "Una vez"]
+        
+        grafico_data = []
+        for _, row in resultado_1.iterrows():
+            for freq in frecuencias:
+                grafico_data.append({
+                    "Frecuencia": freq,
+                    "Porcentaje": row[freq],
+                    "Sexo": row["SEXO"],
+                    "Entidad": estado_1
+                })
+        
+        for _, row in resultado_2.iterrows():
+            for freq in frecuencias:
+                grafico_data.append({
+                    "Frecuencia": freq,
+                    "Porcentaje": row[freq],
+                    "Sexo": row["SEXO"],
+                    "Entidad": estado_2
+                })
+        
+        df_grafico = pd.DataFrame(grafico_data)
+        
+        st.bar_chart(
+            df_grafico,
+            x="Frecuencia",
+            y="Porcentaje",
+            color="Sexo",
+            x_label="Frecuencia",
+            y_label="Porcentaje (%)"
         )
 
 else:
