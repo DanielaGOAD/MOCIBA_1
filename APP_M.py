@@ -138,14 +138,20 @@ def mapear_edad_agresor(edad):
     # Excluir valores especiales (98, 99, etc.)
     if edad >= 98:
         return "Desconocido"
-    elif edad < 18:
-        return "Menor de 18 años"
-    elif edad < 30:
-        return "18-29 años"
-    elif edad < 50:
-        return "30-49 años"
+    elif edad < 12:
+        return "Menor de 12 años"
+    elif edad in range (12,17):
+        return "12 - 17 años"
+    elif edad in range (18,25):
+        return "18-25 años"
+    elif edad in range (26,35):
+        return "26-35 años"
+    elif edad in range (36,45):
+        return "36-45 años"
+    elif edad in range (46,60):
+        return "46-60 años"
     else:
-        return "50 años o más"
+        return "mas de 60 años"
 
 st.title("📊 MOCIBA - Comparativa de Entidades")
 
