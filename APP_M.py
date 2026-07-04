@@ -88,27 +88,69 @@ mapeo_efectos_ciberacoso = {
     15: "Nada"
 }
 
+# --- Mapeo de CVE_ENT a NOM_ENT (estándar INEGI)
+mapeo_entidades = {
+    1: "AGUASCALIENTES",
+    2: "BAJA CALIFORNIA",
+    3: "BAJA CALIFORNIA SUR",
+    4: "CAMPECHE",
+    5: "COAHUILA DE ZARAGOZA",
+    6: "COLIMA",
+    7: "CHIAPAS",
+    8: "CHIHUAHUA",
+    9: "CIUDAD DE MEXICO",
+    10: "DURANGO",
+    11: "GUANAJUATO",
+    12: "GUERRERO",
+    13: "HIDALGO",
+    14: "JALISCO",
+    15: "MEXICO",
+    16: "MICHOACAN DE OCAMPO",
+    17: "MORELOS",
+    18: "NAYARIT",
+    19: "NUEVO LEON",
+    20: "OAXACA",
+    21: "PUEBLA",
+    22: "QUERETARO",
+    23: "QUINTANA ROO",
+    24: "SAN LUIS POTOSI",
+    25: "SINALOA",
+    26: "SONORA",
+    27: "TABASCO",
+    28: "TAMAULIPAS",
+    29: "TLAXCALA",
+    30: "VERACRUZ DE IGNACIO DE LA LLAVE",
+    31: "YUCATAN",
+    32: "ZACATECAS"
+}
+
 @st.cache_data(show_spinner="Cargando datos desde Google Drive...")
 def cargar_datos_base():
     file_ids = [
         "1ojZcLZost0BM00yCGN8OLnu7XYyLpEYr",
         "1v08-7Jx4Iw3msAkgb1m01Im49s8gqCqO",
-        "1v6OgDHRSqNHbDnph2ijFvZB6RyTBAAk8"
+        "1v6OgDHRSqNHbDnph2ijFvZB6RyTBAAk8",
+        "1WQj9dD8RUkAcTvwunTGkkT4FwDfh6-vi"
+
     ]
 
+    # Generar todas las columnas posibles
     columnas_p5 = [f"P5_{i:02d}_{j}" for i in range(1, 14) for j in range(1, 4)]
     columnas_p7 = [f"P7_{i:02d}_{j}" for i in range(1, 14) for j in range(1, 4)]
-    columnas_p10 = [f"P10_{i:02d}_{j}" for i in range(1, 14) for j in range(1, 4)]  # Nuevas
+    columnas_p10 = [f"P10_{i:02d}_{j}" for i in range(1, 14) for j in range(1, 4)]
 
-    columnas = (
-        ["ANIO", "CVE_ENT", "NOM_ENT", "SEXO", "FACTOR", "EDAD", "NIVEL", "P7_4"]
-        + list(uso_medidas_de_seguridad.keys())
-        + list(medidas_de_seguridad.keys())
-        + [k for k in ciberacoso.keys() if k != "CUALQUIERA"]
-        + list(frecuencia_mensajes.keys())
-        + columnas_p5
-        + columnas_p7
-        + columnas_p10
+    # CVE_ENT es OBLIGATORIA porque con ella generamos NOM_ENT si falta
+    columnas_base = ["ANIO", "CVE_ENT", "SEXO", "FACTOR", "EDAD", "NIVEL", "P7_4"]
+    # NOM_ENT se maneja por separado (se genera si no existe)
+    
+    columnas_preguntas = (
+        list(uso_medidas_de_seguridad.keys()) + 
+        list(medidas_de_seguridad.keys()) + 
+        [k for k in ciberacoso.keys() if k != "CUALQUIERA"] +
+        list(frecuencia_mensajes.keys()) +
+        columnas_p5 +
+        columnas_p7 +
+        columnas_p10
     )
 
     dfs = []
@@ -119,31 +161,81 @@ def cargar_datos_base():
         gdown.download(url, output, quiet=True)
         output.seek(0)
 
+        # PASO 1: Leer solo los encabezados para saber qué columnas existen
+        df_headers = pd.read_csv(
+            output,
+            encoding="latin1",
+            nrows=0,
+            low_memory=False
+        )
+        columnas_existentes = set(df_headers.columns)
+        
+        # PASO 2: Intersectar con las columnas que necesitamos
+        output.seek(0)
+        
+        columnas_a_usar = [col for col in (columnas_base + columnas_preguntas) 
+                          if col in columnas_existentes]
+        
+        # También incluir NOM_ENT si existe
+        if "NOM_ENT" in columnas_existentes:
+            columnas_a_usar.append("NOM_ENT")
+        
+        # Verificar columnas faltantes (para debugging)
+        columnas_faltantes = [col for col in (columnas_base + columnas_preguntas) 
+                             if col not in columnas_existentes]
+        
+        nom_ent_faltante = "NOM_ENT" not in columnas_existentes
+        
+        if columnas_faltantes or nom_ent_faltante:
+            mensaje = f"⚠️ Archivo {file_id[:10]}..."
+            if nom_ent_faltante:
+                mensaje += " - Se generará NOM_ENT desde CVE_ENT."
+            if columnas_faltantes:
+                mensaje += f" Columnas faltantes: {', '.join(columnas_faltantes[:5])}{'...' if len(columnas_faltantes) > 5 else ''}"
+            st.info(mensaje)
+
+        # PASO 3: Leer el CSV completo solo con las columnas que existen
         df_temp = pd.read_csv(
             output,
             encoding="latin1",
-            usecols=columnas,
+            usecols=columnas_a_usar,
             low_memory=False
         )
+        
+        # PASO 4: Agregar columnas faltantes con NaN
+        for col in (columnas_base + columnas_preguntas):
+            if col not in df_temp.columns:
+                df_temp[col] = pd.NA
+        
+        # PASO 5: Generar NOM_ENT desde CVE_ENT si no existe
+        if "NOM_ENT" not in df_temp.columns:
+            # Asegurar que CVE_ENT sea numérico
+            df_temp["CVE_ENT"] = pd.to_numeric(df_temp["CVE_ENT"], errors='coerce')
+            # Mapear usando el diccionario
+            df_temp["NOM_ENT"] = df_temp["CVE_ENT"].map(mapeo_entidades)
+        
         dfs.append(df_temp)
 
     df_final = pd.concat(dfs, ignore_index=True)
     
-    todas_preguntas = (
-        list(uso_medidas_de_seguridad.keys()) + 
-        list(medidas_de_seguridad.keys()) + 
-        [k for k in ciberacoso.keys() if k != "CUALQUIERA"] +
-        list(frecuencia_mensajes.keys()) +
-        columnas_p5 +
-        columnas_p7 +
-        columnas_p10
-    )
-    for col in todas_preguntas:
-        df_final[col] = pd.to_numeric(df_final[col], errors='coerce')
+    # Convertir TODAS las columnas de preguntas a numérico
+    for col in columnas_preguntas:
+        if col in df_final.columns:
+            df_final[col] = pd.to_numeric(df_final[col], errors='coerce')
     
+    df_final["CVE_ENT"] = pd.to_numeric(df_final["CVE_ENT"], errors='coerce')
     df_final["EDAD"] = pd.to_numeric(df_final["EDAD"], errors='coerce')
     df_final["NIVEL"] = pd.to_numeric(df_final["NIVEL"], errors='coerce')
     df_final["P7_4"] = pd.to_numeric(df_final["P7_4"], errors='coerce')
+    
+    # Asegurar que NOM_ENT siempre exista y sea string
+    if "NOM_ENT" not in df_final.columns:
+        df_final["NOM_ENT"] = df_final["CVE_ENT"].map(mapeo_entidades)
+    else:
+        # Si NOM_ENT existe pero tiene NaN (por CVE_ENT inválido), rellenar con el mapeo
+        df_final["CVE_ENT_num"] = pd.to_numeric(df_final["CVE_ENT"], errors='coerce')
+        df_final["NOM_ENT"] = df_final["NOM_ENT"].fillna(df_final["CVE_ENT_num"].map(mapeo_entidades))
+        df_final = df_final.drop(columns=["CVE_ENT_num"])
         
     return df_final
 
@@ -175,7 +267,7 @@ tipo_variable = st.radio(
         "Frecuencia de mensajes ofensivos",
         "Víctimas que conocían al agresor",
         "Edad de la persona acosadora",
-        "Efectos del ciberacoso"  # Nuevo indicador
+        "Efectos del ciberacoso"
     ]
 )
 
@@ -432,9 +524,6 @@ def calcular_victimas_conocian_agresor(df, p4_variable, numero_acoso, estado):
 
 
 def calcular_edad_agresor_global(df, estado, anio):
-    """
-    Calcula la distribución de la edad del agresor para víctimas de ciberacoso.
-    """
     df_filtrado = df.copy()
     df_filtrado = df_filtrado[df_filtrado["ANIO"] == anio]
     if estado != "NACIONAL":
@@ -475,25 +564,11 @@ def calcular_edad_agresor_global(df, estado, anio):
 
 
 def calcular_efectos_ciberacoso(df, estado, anio, sexo):
-    """
-    Calcula la distribución de efectos del ciberacoso para víctimas.
-    
-    Lógica (equivalente a la consulta SQL):
-    1. Denominador: Total de víctimas de ciberacoso filtradas por sexo
-    2. Numerador: Para cada efecto (códigos 1-15), suma del FACTOR de personas que 
-       reportaron AL MENOS UN efecto de ese tipo (sin duplicados por persona)
-    3. Los valores de P10_XX_j son códigos de efectos (1=Nervios, 2=Miedo, etc.)
-    """
     df_filtrado = df.copy()
-    
-    # Filtrar por año
     df_filtrado = df_filtrado[df_filtrado["ANIO"] == anio]
-    
-    # Filtrar por estado
     if estado != "NACIONAL":
         df_filtrado = df_filtrado[df_filtrado["NOM_ENT"] == estado]
     
-    # Filtrar por sexo
     if sexo == "Hombres":
         df_filtrado = df_filtrado[df_filtrado["SEXO"] == 1].copy()
     elif sexo == "Mujeres":
@@ -501,43 +576,30 @@ def calcular_efectos_ciberacoso(df, estado, anio, sexo):
     else:
         df_filtrado = df_filtrado[df_filtrado["SEXO"].isin([1, 2])].copy()
     
-    # Columnas de ciberacoso
     columnas_ciberacoso = [k for k in ciberacoso.keys() if k != "CUALQUIERA"]
-    
-    # PASO 1: Identificar víctimas de ciberacoso (denominador)
     mascara_victima = df_filtrado[columnas_ciberacoso].eq(1).any(axis=1)
     df_victimas = df_filtrado[mascara_victima].copy()
     
     if len(df_victimas) == 0:
         return pd.DataFrame(columns=["EFECTO", "PORCENTAJE"])
     
-    # Denominador: total de víctimas (suma de FACTOR)
     total_victimas = df_victimas["FACTOR"].sum()
-    
     if total_victimas == 0:
         return pd.DataFrame(columns=["EFECTO", "PORCENTAJE"])
     
-    # Columnas P10_XX_j existentes
     columnas_p10 = [f"P10_{i:02d}_{j}" for i in range(1, 14) for j in range(1, 4)]
     columnas_existentes = [c for c in columnas_p10 if c in df_victimas.columns]
     
     if not columnas_existentes:
         return pd.DataFrame(columns=["EFECTO", "PORCENTAJE"])
     
-    # PASOS 2, 3 y 4: Para cada efecto (códigos 1-15), contar personas que reportaron 
-    # al menos un efecto de ese tipo (sin duplicados)
     resultados = []
-    
     for codigo_efecto in range(1, 16):
-        # Para cada persona, verificar si AL MENOS UNA columna P10_XX_j == codigo_efecto
         mascara_efecto = pd.Series(False, index=df_victimas.index)
         for col in columnas_existentes:
             mascara_efecto = mascara_efecto | (df_victimas[col] == codigo_efecto)
         
-        # Sumar FACTOR de las personas que tienen al menos un efecto de este tipo
         factor_con_efecto = df_victimas.loc[mascara_efecto, "FACTOR"].sum()
-        
-        # Calcular porcentaje sobre el total de víctimas
         porcentaje = (factor_con_efecto / total_victimas) * 100
         
         resultados.append({
@@ -693,7 +755,6 @@ elif tipo_variable == "Efectos del ciberacoso":
         if resultado_1.empty and resultado_2.empty:
             st.warning(f"⚠️ No se encontraron datos de efectos del ciberacoso (P10_XX_j) en el archivo.")
         else:
-            # Pivotar para mostrar en formato de tabla
             tabla_1 = resultado_1.set_index("EFECTO")
             tabla_2 = resultado_2.set_index("EFECTO")
             
@@ -707,7 +768,6 @@ elif tipo_variable == "Efectos del ciberacoso":
             st.info("💡 Porcentaje de víctimas de ciberacoso que experimentaron cada efecto. Los porcentajes pueden sumar más del 100% porque una víctima puede experimentar múltiples efectos.")
             st.dataframe(comparativa, use_container_width=True)
             
-            # Gráfico de barras horizontales (mejor para muchos efectos)
             grafico_data = []
             for _, row in resultado_1.iterrows():
                 grafico_data.append({
