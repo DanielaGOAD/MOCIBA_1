@@ -55,8 +55,7 @@ frecuencia_mensajes = {
     "P9_13": "Otro tipo de acoso"
 }
 
-# --- Tipos de ciberacoso para el indicador de identidad del agresor
-# (excluye CUALQUIERA porque necesita un tipo específico para buscar P5_XX_j)
+# --- Tipos de ciberacoso para los indicadores de agresor
 tipos_ciberacoso_agresor = {k: v for k, v in ciberacoso.items() if k != "CUALQUIERA"}
 
 @st.cache_data(show_spinner="Cargando datos desde Google Drive...")
@@ -65,9 +64,9 @@ def cargar_datos_base():
         "1ojZcLZost0BM00yCGN8OLnu7XYyLpEYr"
     ]
 
-    # Generar automáticamente las columnas P5_XX_1, P5_XX_2, P5_XX_3
-    # para los 13 tipos de ciberacoso (i=1..13, j=1..3)
+    # Generar columnas P5_XX_j (identidad del agresor) y P7_XX_j (edad del agresor)
     columnas_p5 = [f"P5_{i:02d}_{j}" for i in range(1, 14) for j in range(1, 4)]
+    columnas_p7 = [f"P7_{i:02d}_{j}" for i in range(1, 14) for j in range(1, 4)]
 
     columnas = (
         ["ANIO", "CVE_ENT", "NOM_ENT", "SEXO", "FACTOR", "EDAD", "NIVEL", "P7_4"]
@@ -75,7 +74,8 @@ def cargar_datos_base():
         + list(medidas_de_seguridad.keys())
         + [k for k in ciberacoso.keys() if k != "CUALQUIERA"]
         + list(frecuencia_mensajes.keys())
-        + columnas_p5  # P5_01_1 a P5_13_3 (39 columnas)
+        + columnas_p5
+        + columnas_p7  # Nuevas columnas de edad del agresor
     )
 
     dfs = []
@@ -96,13 +96,14 @@ def cargar_datos_base():
 
     df_final = pd.concat(dfs, ignore_index=True)
     
-    # Convertir TODAS las columnas de preguntas a numérico (incluyendo P5)
+    # Convertir TODAS las columnas de preguntas a numérico
     todas_preguntas = (
         list(uso_medidas_de_seguridad.keys()) + 
         list(medidas_de_seguridad.keys()) + 
         [k for k in ciberacoso.keys() if k != "CUALQUIERA"] +
         list(frecuencia_mensajes.keys()) +
-        columnas_p5
+        columnas_p5 +
+        columnas_p7
     )
     for col in todas_preguntas:
         df_final[col] = pd.to_numeric(df_final[col], errors='coerce')
@@ -128,6 +129,24 @@ def mapear_nivel_escolaridad(nivel):
     else:
         return None
 
+# Función para mapear edad del agresor a rangos
+def mapear_edad_agresor(edad):
+    """Mapea la edad del agresor a rangos predefinidos."""
+    if pd.isna(edad):
+        return "Desconocido"
+    edad = int(edad)
+    # Excluir valores especiales (98, 99, etc.)
+    if edad >= 98:
+        return "Desconocido"
+    elif edad < 18:
+        return "Menor de 18 años"
+    elif edad < 30:
+        return "18-29 años"
+    elif edad < 50:
+        return "30-49 años"
+    else:
+        return "50 años o más"
+
 st.title("📊 MOCIBA - Comparativa de Entidades")
 
 tipo_variable = st.radio(
@@ -139,7 +158,8 @@ tipo_variable = st.radio(
         "Ciberacoso por nivel de escolaridad",
         "Horas promedio de uso de internet",
         "Frecuencia de mensajes ofensivos",
-        "Víctimas que conocían al agresor"
+        "Víctimas que conocían al agresor",
+        "Edad de la persona acosadora"  # Nuevo indicador
     ]
 )
 
@@ -166,17 +186,26 @@ elif tipo_variable == "Frecuencia de mensajes ofensivos":
     anio_seleccionado = st.selectbox("Seleccione el año", anios_disponibles, index=0)
 
 elif tipo_variable == "Víctimas que conocían al agresor":
-    # Selector de tipo de ciberacoso (P4_01 a P4_13)
     tipo_acoso_seleccionado = st.selectbox(
         "Seleccione el tipo de ciberacoso",
         list(tipos_ciberacoso_agresor.values())
     )
-    # Obtener la clave (ej: "P4_03")
     p4_key = [k for k, v in tipos_ciberacoso_agresor.items() if v == tipo_acoso_seleccionado][0]
-    # Extraer el número del tipo de ciberacoso (ej: "03" de "P4_03")
-    numero_acoso = p4_key.split("_")[1]  # "03"
+    numero_acoso = p4_key.split("_")[1]
     variable_col = p4_key
     tipo_calculo = "conocian_agresor"
+    anio_seleccionado = None
+    solo_victimas = False
+
+elif tipo_variable == "Edad de la persona acosadora":
+    tipo_acoso_seleccionado = st.selectbox(
+        "Seleccione el tipo de ciberacoso",
+        list(tipos_ciberacoso_agresor.values())
+    )
+    p4_key = [k for k, v in tipos_ciberacoso_agresor.items() if v == tipo_acoso_seleccionado][0]
+    numero_acoso = p4_key.split("_")[1]
+    variable_col = p4_key
+    tipo_calculo = "edad_agresor"
     anio_seleccionado = None
     solo_victimas = False
 
@@ -347,27 +376,14 @@ def calcular_frecuencia_mensajes(df, variable_col, estado, anio):
 
 
 def calcular_victimas_conocian_agresor(df, p4_variable, numero_acoso, estado):
-    """
-    Calcula el porcentaje de víctimas de ciberacoso que conocían al agresor
-    para un tipo específico de ciberacoso.
-    
-    - p4_variable: La columna P4_XX (ej: "P4_03")
-    - numero_acoso: El número del tipo de acoso (ej: "03")
-    - estado: Entidad o "NACIONAL"
-    
-    Construye dinámicamente las columnas P5_XX_1, P5_XX_2, P5_XX_3
-    """
     df_filtrado = df.copy()
-    
     if estado != "NACIONAL":
         df_filtrado = df_filtrado[df_filtrado["NOM_ENT"] == estado]
     
-    # Columnas de identidad del agresor para este tipo de ciberacoso
     col_p5_1 = f"P5_{numero_acoso}_1"
     col_p5_2 = f"P5_{numero_acoso}_2"
     col_p5_3 = f"P5_{numero_acoso}_3"
     
-    # Verificar que las columnas existan en el DataFrame
     columnas_existentes = [c for c in [col_p5_1, col_p5_2, col_p5_3] if c in df_filtrado.columns]
     
     if not columnas_existentes:
@@ -378,13 +394,9 @@ def calcular_victimas_conocian_agresor(df, p4_variable, numero_acoso, estado):
     resultados = []
     
     for anio, grupo in df_filtrado.groupby("ANIO"):
-        # Denominador: Total de víctimas de ciberacoso (cualquiera de P4_01 a P4_13 = 1)
         mascara_victima = grupo[columnas_ciberacoso].eq(1).any(axis=1)
-        
-        # Numerador: Quienes sufrieron ESTE tipo de ciberacoso Y conocían al agresor
         mascara_tipo_acoso = grupo[p4_variable] == 1
         
-        # Construir máscara de "conocía al agresor" dinámicamente
         mascara_conocia = pd.Series(False, index=grupo.index)
         for col in columnas_existentes:
             mascara_conocia = mascara_conocia | grupo[col].isin([1, 2, 3, 4, 5, 6, 7])
@@ -396,8 +408,82 @@ def calcular_victimas_conocian_agresor(df, p4_variable, numero_acoso, estado):
         
         porcentaje = (factor_conocidos / factor_victimas) * 100 if factor_victimas > 0 else 0.0
         
+        resultados.append({"ANIO": anio, "PORCENTAJE": round(porcentaje, 2)})
+    
+    return pd.DataFrame(resultados)
+
+
+def calcular_edad_agresor(df, p4_variable, numero_acoso, estado):
+    """
+    Calcula la distribución de la edad del agresor para víctimas de un tipo específico de ciberacoso.
+    
+    - p4_variable: La columna P4_XX (ej: "P4_03")
+    - numero_acoso: El número del tipo de acoso (ej: "03")
+    - estado: Entidad o "NACIONAL"
+    
+    Construye dinámicamente las columnas P7_XX_1, P7_XX_2, P7_XX_3
+    """
+    df_filtrado = df.copy()
+    
+    if estado != "NACIONAL":
+        df_filtrado = df_filtrado[df_filtrado["NOM_ENT"] == estado]
+    
+    # Columnas de edad del agresor para este tipo de ciberacoso
+    col_p7_1 = f"P7_{numero_acoso}_1"
+    col_p7_2 = f"P7_{numero_acoso}_2"
+    col_p7_3 = f"P7_{numero_acoso}_3"
+    
+    # Verificar que las columnas existan
+    columnas_existentes = [c for c in [col_p7_1, col_p7_2, col_p7_3] if c in df_filtrado.columns]
+    
+    if not columnas_existentes:
+        return pd.DataFrame(columns=["RANGO_EDAD", "PORCENTAJE"])
+    
+    columnas_ciberacoso = [k for k in ciberacoso.keys() if k != "CUALQUIERA"]
+    
+    # Identificar víctimas que sufrieron este tipo específico de ciberacoso
+    mascara_tipo_acoso = df_filtrado[p4_variable] == 1
+    df_victimas_tipo = df_filtrado[mascara_tipo_acoso].copy()
+    
+    if len(df_victimas_tipo) == 0:
+        return pd.DataFrame(columns=["RANGO_EDAD", "PORCENTAJE"])
+    
+    # Recopilar todas las edades de los agresores (hasta 3 por víctima)
+    edades_agresores = []
+    factores_agresores = []
+    
+    for _, row in df_victimas_tipo.iterrows():
+        factor = row["FACTOR"]
+        for col in columnas_existentes:
+            edad = row[col]
+            if pd.notna(edad) and edad < 98:  # Excluir valores no especificados
+                edades_agresores.append(edad)
+                factores_agresores.append(factor)
+    
+    if len(edades_agresores) == 0:
+        return pd.DataFrame(columns=["RANGO_EDAD", "PORCENTAJE"])
+    
+    # Crear DataFrame de edades con factores
+    df_edades = pd.DataFrame({
+        "EDAD_AGRESOR": edades_agresores,
+        "FACTOR": factores_agresores
+    })
+    
+    # Mapear a rangos de edad
+    df_edades["RANGO_EDAD"] = df_edades["EDAD_AGRESOR"].apply(mapear_edad_agresor)
+    
+    # Calcular distribución ponderada por rango de edad
+    total_factor = df_edades["FACTOR"].sum()
+    distribucion = df_edades.groupby("RANGO_EDAD")["FACTOR"].sum()
+    
+    resultados = []
+    rangos_orden = ["Menor de 18 años", "18-29 años", "30-49 años", "50 años o más", "Desconocido"]
+    
+    for rango in rangos_orden:
+        factor_rango = distribucion.get(rango, 0)
+        porcentaje = (factor_rango / total_factor) * 100 if total_factor > 0 else 0.0
         resultados.append({
-            "ANIO": anio,
+            "RANGO_EDAD": rango,
             "PORCENTAJE": round(porcentaje, 2)
         })
     
@@ -489,11 +575,59 @@ elif tipo_variable == "Víctimas que conocían al agresor":
             comparativa["Diferencia (pp)"] = round(comparativa[estado_1] - comparativa[estado_2], 2)
             
             st.subheader(f"Víctimas que Conocían al Agresor - {tipo_acoso_seleccionado}")
-            st.info(f"💡 De todas las víctimas de ciberacoso, ¿qué porcentaje sufrió '{tipo_acoso_seleccionado}' y conocía a la persona agresora? (P5_{numero_acoso}_1, P5_{numero_acoso}_2, P5_{numero_acoso}_3 en valores 1-7)")
+            st.info(f"💡 De todas las víctimas de ciberacoso, ¿qué porcentaje sufrió '{tipo_acoso_seleccionado}' y conocía a la persona agresora?")
             st.dataframe(comparativa, use_container_width=True)
             
             grafico_data = comparativa.melt(id_vars=["ANIO"], value_vars=[estado_1, estado_2], var_name="Entidad", value_name="Porcentaje")
             st.line_chart(grafico_data, x="ANIO", y="Porcentaje", color="Entidad", y_label="Porcentaje (%)", x_label="Año")
+
+elif tipo_variable == "Edad de la persona acosadora":
+    if estado_1 != estado_2:
+        resultado_1 = calcular_edad_agresor(df, variable_col, numero_acoso, estado_1)
+        resultado_2 = calcular_edad_agresor(df, variable_col, numero_acoso, estado_2)
+        
+        if resultado_1.empty and resultado_2.empty:
+            st.warning(f"⚠️ No se encontraron datos de edad del agresor (P7_{numero_acoso}_1, P7_{numero_acoso}_2, P7_{numero_acoso}_3) en el archivo.")
+        else:
+            # Pivotar para mostrar en formato de tabla
+            tabla_1 = resultado_1.set_index("RANGO_EDAD")
+            tabla_2 = resultado_2.set_index("RANGO_EDAD")
+            
+            tabla_1.columns = [f"{col} - {estado_1}" for col in tabla_1.columns]
+            tabla_2.columns = [f"{col} - {estado_2}" for col in tabla_2.columns]
+            
+            comparativa = pd.concat([tabla_1, tabla_2], axis=1).fillna(0).reset_index()
+            comparativa = comparativa.rename(columns={"index": "Rango de Edad"})
+            
+            st.subheader(f"Edad de la Persona Acosadora - {tipo_acoso_seleccionado}")
+            st.info(f"💡 Distribución porcentual de la edad de los agresores para víctimas que sufrieron '{tipo_acoso_seleccionado}'")
+            st.dataframe(comparativa, use_container_width=True)
+            
+            # Gráfico de barras agrupadas
+            grafico_data = []
+            for _, row in resultado_1.iterrows():
+                grafico_data.append({
+                    "Rango de Edad": row["RANGO_EDAD"],
+                    "Porcentaje": row["PORCENTAJE"],
+                    "Entidad": estado_1
+                })
+            for _, row in resultado_2.iterrows():
+                grafico_data.append({
+                    "Rango de Edad": row["RANGO_EDAD"],
+                    "Porcentaje": row["PORCENTAJE"],
+                    "Entidad": estado_2
+                })
+            
+            df_grafico = pd.DataFrame(grafico_data)
+            
+            st.bar_chart(
+                df_grafico,
+                x="Rango de Edad",
+                y="Porcentaje",
+                color="Entidad",
+                x_label="Edad del Agresor",
+                y_label="Porcentaje (%)"
+            )
 
 else:
     if estado_1 != estado_2:
