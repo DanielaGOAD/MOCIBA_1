@@ -58,13 +58,23 @@ frecuencia_mensajes = {
 # --- Tipos de ciberacoso para los indicadores de agresor
 tipos_ciberacoso_agresor = {k: v for k, v in ciberacoso.items() if k != "CUALQUIERA"}
 
+# --- Mapeo de códigos de edad del agresor a rangos (según la encuesta)
+mapeo_rangos_edad_agresor = {
+    1: "Menores de 12",
+    2: "12 a 17",
+    3: "18 a 25",
+    4: "26 a 35",
+    5: "36 a 45",
+    6: "46 a 60",
+    7: "Más de 60"
+}
+
 @st.cache_data(show_spinner="Cargando datos desde Google Drive...")
 def cargar_datos_base():
     file_ids = [
         "1ojZcLZost0BM00yCGN8OLnu7XYyLpEYr"
     ]
 
-    # Generar columnas P5_XX_j (identidad del agresor) y P7_XX_j (edad del agresor)
     columnas_p5 = [f"P5_{i:02d}_{j}" for i in range(1, 14) for j in range(1, 4)]
     columnas_p7 = [f"P7_{i:02d}_{j}" for i in range(1, 14) for j in range(1, 4)]
 
@@ -96,7 +106,6 @@ def cargar_datos_base():
 
     df_final = pd.concat(dfs, ignore_index=True)
     
-    # Convertir TODAS las columnas de preguntas a numérico
     todas_preguntas = (
         list(uso_medidas_de_seguridad.keys()) + 
         list(medidas_de_seguridad.keys()) + 
@@ -128,30 +137,6 @@ def mapear_nivel_escolaridad(nivel):
         return "Superior"
     else:
         return None
-
-# Función actualizada para mapear edad del agresor
-def mapear_edad_agresor(edad):
-    """Mapea la edad del agresor a rangos predefinidos."""
-    if pd.isna(edad):
-        return "Desconocido"
-    edad = int(edad)
-    # Excluir valores especiales (98, 99, etc.)
-    if edad >= 98:
-        return "Desconocido"
-    elif edad < 12:
-        return "Menor de 12 años"
-    elif edad in range(12, 18):
-        return "12 - 17 años"
-    elif edad in range(18, 26):
-        return "18 - 25 años"
-    elif edad in range(26, 36):
-        return "26 - 35 años"
-    elif edad in range(36, 46):
-        return "36 - 45 años"
-    elif edad in range(46, 61):
-        return "46 - 60 años"
-    else:
-        return "Más de 60 años"
 
 st.title("📊 MOCIBA - Comparativa de Entidades")
 
@@ -204,8 +189,6 @@ elif tipo_variable == "Víctimas que conocían al agresor":
     solo_victimas = False
 
 elif tipo_variable == "Edad de la persona acosadora":
-    # Ya no necesita selector de tipo de ciberacoso (es global)
-    # Solo necesita selector de año
     anios_disponibles = sorted(df["ANIO"].dropna().unique(), reverse=True)
     anio_seleccionado = st.selectbox("Seleccione el año", anios_disponibles, index=0)
     variable_col = None
@@ -418,12 +401,13 @@ def calcular_victimas_conocian_agresor(df, p4_variable, numero_acoso, estado):
 
 def calcular_edad_agresor_global(df, estado, anio):
     """
-    Calcula la distribución global de la edad del agresor para todas las víctimas de ciberacoso.
+    Calcula la distribución de la edad del agresor para víctimas de ciberacoso.
     
-    - Recopila las edades de TODOS los agresores de TODOS los tipos de ciberacoso
-    - Solo considera las edades de los agresores correspondientes al tipo de ciberacoso que sufrió la víctima
-    - Denominador: total de víctimas de ciberacoso (cualquiera de P4_01 a P4_13)
-    - Numerador: distribución de edades de los agresores por rango
+    Lógica (equivalente a la consulta SQL):
+    1. Denominador: Total de víctimas de ciberacoso (cualquiera de P4_01 a P4_13 = 1)
+    2. Numerador: Para cada rango de edad (1-7), suma del FACTOR de personas que 
+       reportaron AL MENOS UN acosador de ese rango (sin duplicados por persona)
+    3. Los valores de P7_XX_j son códigos de rangos (1=Menores de 12, 2=12-17, etc.)
     """
     df_filtrado = df.copy()
     
@@ -437,60 +421,45 @@ def calcular_edad_agresor_global(df, estado, anio):
     # Columnas de ciberacoso
     columnas_ciberacoso = [k for k in ciberacoso.keys() if k != "CUALQUIERA"]
     
-    # Identificar víctimas de ciberacoso (cualquiera de P4_01 a P4_13 = 1)
+    # PASO 1: Identificar víctimas de ciberacoso (denominador)
     mascara_victima = df_filtrado[columnas_ciberacoso].eq(1).any(axis=1)
     df_victimas = df_filtrado[mascara_victima].copy()
     
     if len(df_victimas) == 0:
         return pd.DataFrame(columns=["RANGO_EDAD", "PORCENTAJE"])
     
-    # Recopilar todas las edades de los agresores
-    edades_agresores = []
-    factores_agresores = []
+    # Denominador: total de víctimas (suma de FACTOR)
+    total_victimas = df_victimas["FACTOR"].sum()
     
-    for _, row in df_victimas.iterrows():
-        factor = row["FACTOR"]
-        
-        # Para cada tipo de ciberacoso que sufrió la víctima
-        for i in range(1, 14):
-            p4_col = f"P4_{i:02d}"
-            
-            # Si la víctima sufrió este tipo de ciberacoso
-            if row[p4_col] == 1:
-                # Recopilar las edades de los agresores de este tipo
-                for j in range(1, 4):
-                    p7_col = f"P7_{i:02d}_{j}"
-                    if p7_col in df_victimas.columns:
-                        edad = row[p7_col]
-                        if pd.notna(edad) and edad < 98:  # Excluir valores no especificados
-                            edades_agresores.append(edad)
-                            factores_agresores.append(factor)
-    
-    if len(edades_agresores) == 0:
+    if total_victimas == 0:
         return pd.DataFrame(columns=["RANGO_EDAD", "PORCENTAJE"])
     
-    # Crear DataFrame de edades con factores
-    df_edades = pd.DataFrame({
-        "EDAD_AGRESOR": edades_agresores,
-        "FACTOR": factores_agresores
-    })
+    # Columnas P7_XX_j existentes
+    columnas_p7 = [f"P7_{i:02d}_{j}" for i in range(1, 14) for j in range(1, 4)]
+    columnas_existentes = [c for c in columnas_p7 if c in df_victimas.columns]
     
-    # Mapear a rangos de edad
-    df_edades["RANGO_EDAD"] = df_edades["EDAD_AGRESOR"].apply(mapear_edad_agresor)
+    if not columnas_existentes:
+        return pd.DataFrame(columns=["RANGO_EDAD", "PORCENTAJE"])
     
-    # Calcular distribución ponderada por rango de edad
-    total_factor = df_edades["FACTOR"].sum()
-    distribucion = df_edades.groupby("RANGO_EDAD")["FACTOR"].sum()
-    
+    # PASOS 2 y 3: Para cada rango de edad (1-7), contar personas que reportaron 
+    # al menos un acosador de ese rango (sin duplicados)
     resultados = []
-    rangos_orden = ["Menor de 12 años", "12 - 17 años", "18 - 25 años", "26 - 35 años", 
-                    "36 - 45 años", "46 - 60 años", "Más de 60 años", "Desconocido"]
     
-    for rango in rangos_orden:
-        factor_rango = distribucion.get(rango, 0)
-        porcentaje = (factor_rango / total_factor) * 100 if total_factor > 0 else 0.0
+    for codigo_rango in range(1, 8):
+        # Para cada persona, verificar si AL MENOS UNA columna P7_XX_j == codigo_rango
+        # Esto elimina duplicados automáticamente (OR lógico)
+        mascara_rango = pd.Series(False, index=df_victimas.index)
+        for col in columnas_existentes:
+            mascara_rango = mascara_rango | (df_victimas[col] == codigo_rango)
+        
+        # Sumar FACTOR de las personas que tienen al menos un acosador de este rango
+        factor_con_rango = df_victimas.loc[mascara_rango, "FACTOR"].sum()
+        
+        # PASO 4: Calcular porcentaje sobre el total de víctimas
+        porcentaje = (factor_con_rango / total_victimas) * 100
+        
         resultados.append({
-            "RANGO_EDAD": rango,
+            "RANGO_EDAD": mapeo_rangos_edad_agresor[codigo_rango],
             "PORCENTAJE": round(porcentaje, 2)
         })
     
@@ -607,7 +576,7 @@ elif tipo_variable == "Edad de la persona acosadora":
             comparativa = comparativa.rename(columns={"index": "Rango de Edad"})
             
             st.subheader(f"Edad de la Persona Acosadora - Año {anio_seleccionado}")
-            st.info("💡 Distribución porcentual de la edad de los agresores para todas las víctimas de ciberacoso (cualquier tipo)")
+            st.info("💡 Porcentaje de víctimas de ciberacoso que reportaron al menos un agresor en cada rango de edad. Los porcentajes pueden sumar más del 100% porque una víctima puede tener agresores de diferentes rangos.")
             st.dataframe(comparativa, use_container_width=True)
             
             # Gráfico de barras agrupadas
@@ -633,7 +602,7 @@ elif tipo_variable == "Edad de la persona acosadora":
                 y="Porcentaje",
                 color="Entidad",
                 x_label="Edad del Agresor",
-                y_label="Porcentaje (%)"
+                y_label="Porcentaje de Víctimas (%)"
             )
 
 else:
