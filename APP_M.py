@@ -93,13 +93,7 @@ def cargar_datos_base():
     file_ids = [
         "1ojZcLZost0BM00yCGN8OLnu7XYyLpEYr",
         "1v08-7Jx4Iw3msAkgb1m01Im49s8gqCqO",
-        "1UjJeym8BHKD1OnUh-T6An6JWt9Ikl0mP",
-        "1ZLMt9_2NyLc1q86KZ6XhcbVThwfBQ7U8",
-        "1epHB_PSwTr3nLfXW9zAOa6_nmORIcF4h",
-        "1ptQC0iSx-f9NRtHlYDGVil20C2wR5zrS",
-        "1iYvlEXww7wY5AlzVC4QXbopkrrW3g9Qc",
-        "1jFLDvuiFQf87aBSPQ0nQPJIbuSAhuHZ5",
-        "1nXot3j4cWhB3Pb0WIb4X-Df-R95Ls9B_"
+        "1UjJeym8BHKD1OnUh-T6An6JWt9Ikl0mP"
     ]
 
     columnas_p5 = [f"P5_{i:02d}_{j}" for i in range(1, 14) for j in range(1, 4)]
