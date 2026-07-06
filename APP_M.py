@@ -133,8 +133,7 @@ def cargar_datos_base():
         "1WQj9dD8RUkAcTvwunTGkkT4FwDfh6-vi",
         "1J49basZDca_rINW_h89q1aIZRIh2z4Ap",
         "135Oiq2feeFQBVfeQvcQsLLAsbE-zu9XX",
-        "1-dj3rGZAu8qV2FbjVZr__-X_cL2aLNDR",
-        "1nMVsfsKehKESH6sPHcSMSaRJlfIf1lK6"
+        "1-dj3rGZAu8qV2FbjVZr__-X_cL2aLNDR"
 
     ]
 
