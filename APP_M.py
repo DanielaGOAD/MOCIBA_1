@@ -127,14 +127,7 @@ mapeo_entidades = {
 @st.cache_data(show_spinner="Cargando datos desde Google Drive...")
 def cargar_datos_base():
     file_ids = [
-        "1ojZcLZost0BM00yCGN8OLnu7XYyLpEYr",
-        "1v08-7Jx4Iw3msAkgb1m01Im49s8gqCqO",
-        "1v6OgDHRSqNHbDnph2ijFvZB6RyTBAAk8",
-        "1WQj9dD8RUkAcTvwunTGkkT4FwDfh6-vi",
-        "1J49basZDca_rINW_h89q1aIZRIh2z4Ap",
-        "135Oiq2feeFQBVfeQvcQsLLAsbE-zu9XX",
-        "1-dj3rGZAu8qV2FbjVZr__-X_cL2aLNDR",
-        "1nMVsfsKehKESH6sPHcSMSaRJlfIf1lK6"
+        "1ojZcLZost0BM00yCGN8OLnu7XYyLpEYr"
     ]
 
     # Generar todas las columnas posibles
