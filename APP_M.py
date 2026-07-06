@@ -23,36 +23,36 @@ medidas_de_seguridad = {
 # --- Grupo 3: Ciberacoso
 ciberacoso = {
     "CUALQUIERA": "Cualquiera de las anteriores (Ciberacoso general)",
-    "P4_01": "Recibir correos electrónicos ofensivos o groseros",
-    "P4_02": "Ser objeto de chismes o rumores en internet",
-    "P4_03": "Recibir mensajes ofensivos o groseros por redes sociales",
-    "P4_04": "Recibir mensajes ofensivos o groseros por mensajería instantánea",
-    "P4_05": "Ser excluido(a) o ignorado(a) en redes sociales o juegos en línea",
-    "P4_06": "Que publicaran información falsa o vergonzosa sobre usted en internet",
-    "P4_07": "Que alguien se hiciera pasar por usted en internet",
-    "P4_08": "Que alguien publicara fotos o videos suyos sin su permiso",
-    "P4_09": "Recibir amenazas o intimidaciones por internet",
-    "P4_10": "Que alguien compartiera sus datos personales sin su permiso",
-    "P4_11": "Recibir propuestas sexuales no deseadas por internet",
-    "P4_12": "Que alguien lo/la acosara sexualmente por internet",
+    "P4_01": "Envío de mensajes ofensivos, con insultos o burlas",
+    "P4_02": "Llamadas ofensivas, con insultos o burlas",
+    "P4_03": "Criticar en línea por su apariencia (forma de vestir, tono de piel, peso, estatura, etc.) o clase social",
+    "P4_04": "Hacerse pasar por usted para enviar información falsa, insultar o agredir a otras personas (usurpación de identidad)",
+    "P4_05": "Contactar con nombres falsos para molestar o dañar",
+    "P4_06": "Vigilar sitios o cuentas en internet para causarle molestia o daño",
+    "P4_07": "Provocar (molestar o retar) en línea para reaccionar de forma negativa",
+    "P4_08": "Hacer insinuaciones o propuestas de tipo sexual que le molestaran",
+    "P4_09": "Envío de fotos o vídeos de contenido sexual que le molestaron",
+    "P4_10": "Publicar, distribuir, intercambiar o vender imágenes, audios o videos de contenido íntimo sexual, reales o simulados, de usted sin su consentimiento",
+    "P4_11": "Publicar y/o enviar información personal, fotos o videos (falsos o verdaderos) de usted para dañarle. (Excluya contenido sexual)",
+    "P4_12": "Amenazar con publicar información personal, imágenes, audios o videos de usted (falsos o verdaderos), a cambio de que usted hiciera o dejara de hacer algo (extorsión)",
     "P4_13": "Otro tipo de ciberacoso"
 }
 
 # --- Grupo 4: Frecuencia de mensajes ofensivos
 frecuencia_mensajes = {
     "P9_01": "Recibir mensajes ofensivos, con insultos o burlas",
-    "P9_02": "Recibir mensajes con amenazas",
-    "P9_03": "Recibir mensajes sexuales no deseados",
-    "P9_04": "Que alguien se hiciera pasar por usted",
-    "P9_05": "Que publicaran información falsa o vergonzosa sobre usted",
-    "P9_06": "Que alguien compartiera sus datos personales sin permiso",
-    "P9_07": "Que alguien publicara fotos o videos suyos sin permiso",
-    "P9_08": "Ser excluido(a) o ignorado(a) en redes sociales o juegos",
-    "P9_09": "Recibir correos electrónicos ofensivos o groseros",
-    "P9_10": "Ser objeto de chismes o rumores en internet",
-    "P9_11": "Que alguien lo/la acosara sexualmente por internet",
-    "P9_12": "Recibir propuestas de encuentros sexuales no deseados",
-    "P9_13": "Otro tipo de acoso"
+    "P9_02": "Recibir llamadas ofensivas, con insultos o burlas",
+    "P9_03": "Recibir críticas en línea por su apariencia (forma de vestir, tono de piel, peso, estatura, etc.) o clase social",
+    "P9_04": "Hacerse pasar por usted para enviar información falsa, insultar o agredir a otras personas (usurpación de identidad)",
+    "P9_05": "Que lo contactaran con nombres falsos para molestarle o dañarle",
+    "P9_06": "Que vigilaran sus sitios o cuentas en internet para causarle molestia o daño",
+    "P9_07": "Que lo provocaran (molestaran o retaran) en línea para que reaccionara de forma negativa",
+    "P9_08": "Hacerle insinuaciones o propuestas de tipo sexual que le molestaron",
+    "P9_09": "Envío de fotos o videos de contenido sexual que le molestaron",
+    "P9_10": "Que publicarán, distribuyeran, intercambiarán o vendieran imágenes, audios o videos de contenido íntimo sexual, reales o simulados, de usted sin su consentimiento",
+    "P9_11": "Que publicaran y/o enviaran información personal, fotos o videos (falsos o verdaderos) de usted para dañarle. (Excluya contenido sexual)",
+    "P9_12": "De amenazar con publicar información personal, imágenes, audios o videos de usted (falsos o verdaderos), a cambio de que usted hiciera o dejara de hacer algo (extorsión)",
+    "P9_13": "Otra situación que le haya afectado"
 }
 
 # --- Tipos de ciberacoso para los indicadores de agresor
@@ -133,8 +133,8 @@ def cargar_datos_base():
         "1WQj9dD8RUkAcTvwunTGkkT4FwDfh6-vi",
         "1J49basZDca_rINW_h89q1aIZRIh2z4Ap",
         "135Oiq2feeFQBVfeQvcQsLLAsbE-zu9XX",
-        "1-dj3rGZAu8qV2FbjVZr__-X_cL2aLNDR"
-
+        "1-dj3rGZAu8qV2FbjVZr__-X_cL2aLNDR",
+        "1nMVsfsKehKESH6sPHcSMSaRJlfIf1lK6"
     ]
 
     # Generar todas las columnas posibles
