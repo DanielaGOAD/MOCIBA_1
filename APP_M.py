@@ -1,7 +1,9 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import io
 import gdown
+import gc
 
 # --- Grupo 1: Uso de medidas de seguridad
 uso_medidas_de_seguridad = {
@@ -55,16 +57,13 @@ frecuencia_mensajes = {
     "P9_13": "Otra situación que le haya afectado"
 }
 
-# --- Tipos de ciberacoso para los indicadores de agresor
 tipos_ciberacoso_agresor = {k: v for k, v in ciberacoso.items() if k != "CUALQUIERA"}
 
-# --- Mapeo de códigos de edad del agresor a rangos
 mapeo_rangos_edad_agresor = {
     1: "Menores de 12", 2: "12 a 17", 3: "18 a 25", 4: "26 a 35",
     5: "36 a 45", 6: "46 a 60", 7: "Más de 60"
 }
 
-# --- Mapeo de códigos de efectos del ciberacoso (P10_XX_j)
 mapeo_efectos_ciberacoso = {
     1: "Nervios", 2: "Miedo", 3: "Estrés", 4: "Desconfianza", 5: "Frustración",
     6: "Inseguridad", 7: "Enojo", 8: "Problemas con familiares, pareja o amigos",
@@ -72,7 +71,6 @@ mapeo_efectos_ciberacoso = {
     12: "Daño a imagen escolar (bullying)", 13: "Daño a imagen personal", 14: "Otro", 15: "Nada"
 }
 
-# --- Mapeo de CVE_ENT a NOM_ENT (estándar INEGI)
 mapeo_entidades = {
     1: "AGUASCALIENTES", 2: "BAJA CALIFORNIA", 3: "BAJA CALIFORNIA SUR",
     4: "CAMPECHE", 5: "COAHUILA DE ZARAGOZA", 6: "COLIMA",
@@ -86,6 +84,7 @@ mapeo_entidades = {
     28: "TAMAULIPAS", 29: "TLAXCALA", 30: "VERACRUZ DE IGNACIO DE LA LLAVE",
     31: "YUCATAN", 32: "ZACATECAS"
 }
+
 
 @st.cache_data(show_spinner="Cargando datos desde Google Drive...")
 def cargar_datos_base():
@@ -133,7 +132,7 @@ def cargar_datos_base():
             
             columnas_faltantes = [col for col in todas_columnas if col not in df_temp.columns]
             if columnas_faltantes:
-                df_faltantes = pd.DataFrame(index=df_temp.index, columns=columnas_faltantes, data=pd.NA)
+                df_faltantes = pd.DataFrame(index=df_temp.index, columns=columnas_faltantes, data=np.nan)
                 df_temp = pd.concat([df_temp, df_faltantes], axis=1)
             
             df_temp["CVE_ENT"] = pd.to_numeric(df_temp["CVE_ENT"], errors='coerce')
@@ -159,7 +158,6 @@ def cargar_datos_base():
         df_final.loc[mask_na, "NOM_ENT"] = df_final.loc[mask_na, "CVE_ENT"].map(mapeo_entidades)
     
     df_final = df_final.copy()
-    import gc
     gc.collect()
     return df_final
 
@@ -172,6 +170,49 @@ def mapear_nivel_escolaridad(nivel):
     elif nivel in [4, 5, 6]: return "Media Superior"
     elif nivel in [7, 8, 9, 10, 11]: return "Superior"
     return None
+
+
+# ===================== FUNCIONES AUXILIARES DE RANKING =====================
+
+def obtener_ranking_nacional(df, variable_col, sexo, tipo_calculo, edad_min, edad_max, estados_lista):
+    resultados = []
+    for estado in estados_lista:
+        res = calcular_porcentaje(df, variable_col, sexo, estado, tipo_calculo, edad_min, edad_max)
+        for _, row in res.iterrows():
+            resultados.append({"ANIO": row["ANIO"], "ESTADO": estado, "VALOR": row["PORCENTAJE"]})
+    
+    df_rank = pd.DataFrame(resultados)
+    if not df_rank.empty:
+        df_rank = df_rank.sort_values(["ANIO", "VALOR"], ascending=[True, False])
+        df_rank["RANKING"] = df_rank.groupby("ANIO").cumcount() + 1
+    return df_rank
+
+def obtener_ranking_horas(df, solo_victimas, estados_lista):
+    resultados = []
+    for estado in estados_lista:
+        res = calcular_horas_promedio_internet(df, estado, solo_victimas)
+        for _, row in res.iterrows():
+            resultados.append({"ANIO": row["ANIO"], "ESTADO": estado, "VALOR": row["HORAS_PROMEDIO"]})
+    
+    df_rank = pd.DataFrame(resultados)
+    if not df_rank.empty:
+        df_rank = df_rank.sort_values(["ANIO", "VALOR"], ascending=[True, False])
+        df_rank["RANKING"] = df_rank.groupby("ANIO").cumcount() + 1
+    return df_rank
+
+def obtener_ranking_efectos(df, sexo, anio, estados_lista):
+    resultados = []
+    for estado in estados_lista:
+        res = calcular_efectos_ciberacoso(df, estado, anio, sexo)
+        for _, row in res.iterrows():
+            resultados.append({"EFECTO": row["EFECTO"], "ESTADO": estado, "VALOR": row["PORCENTAJE"]})
+    
+    df_rank = pd.DataFrame(resultados)
+    if not df_rank.empty:
+        df_rank = df_rank.sort_values(["EFECTO", "VALOR"], ascending=[True, False])
+        df_rank["RANKING"] = df_rank.groupby("EFECTO").cumcount() + 1
+    return df_rank
+
 
 st.title("📊 MOCIBA - Comparativa de Entidades")
 
@@ -186,15 +227,12 @@ tipo_variable = st.radio(
         "Frecuencia de mensajes ofensivos",
         "Víctimas que conocían al agresor",
         "Edad de la persona acosadora",
-        "Efectos del ciberacoso",
-        "🏆 Ranking Nacional por Entidad"  # <-- NUEVA OPCIÓN
+        "Efectos del ciberacoso"
     ]
 )
 
-# Pre-calculamos los estados únicos para usarlos en todo el app
 estados_unicos = sorted([x for x in df["NOM_ENT"].dropna().unique()])
 
-# --- Lógica condicional según el indicador seleccionado ---
 if tipo_variable == "Ciberacoso por nivel de escolaridad":
     variable = "Cualquiera de las anteriores (Ciberacoso general)"
     variable_col = [k for k in ciberacoso.keys() if k != "CUALQUIERA"]
@@ -238,78 +276,6 @@ elif tipo_variable == "Efectos del ciberacoso":
     variable_col = None
     tipo_calculo = "efectos_ciberacoso"
     solo_victimas = False
-
-elif tipo_variable == "🏆 Ranking Nacional por Entidad":
-    st.subheader("🏆 Ranking Nacional por Entidad")
-    
-    indicador_ranking = st.selectbox(
-        "Seleccione el indicador a rankear",
-        [
-            "Uso de medidas de seguridad",
-            "Medidas de seguridad",
-            "Ciberacoso (General)",
-            "Horas promedio de uso de internet",
-            "Efectos del ciberacoso"
-        ]
-    )
-    
-    anios_disponibles = sorted(df["ANIO"].dropna().unique(), reverse=True)
-    anio_ranking = st.selectbox("Seleccione el año", anios_disponibles, index=0)
-    sexo_ranking = st.selectbox("Sexo", ["Total", "Hombres", "Mujeres"])
-    
-    solo_victimas_ranking = False
-    var_key_ranking = None
-    efecto_ranking_nombre = None
-    
-    if indicador_ranking == "Uso de medidas de seguridad":
-        variable_ranking = st.selectbox("Variable", list(uso_medidas_de_seguridad.values()))
-        var_key_ranking = [k for k, v in uso_medidas_de_seguridad.items() if v == variable_ranking][0]
-    elif indicador_ranking == "Medidas de seguridad":
-        variable_ranking = st.selectbox("Variable", list(medidas_de_seguridad.values()))
-        var_key_ranking = [k for k, v in medidas_de_seguridad.items() if v == variable_ranking][0]
-    elif indicador_ranking == "Ciberacoso (General)":
-        var_key_ranking = [k for k in ciberacoso.keys() if k != "CUALQUIERA"]
-    elif indicador_ranking == "Horas promedio de uso de internet":
-        solo_victimas_ranking = st.checkbox("🔍 Mostrar solo para víctimas de ciberacoso", value=False)
-    elif indicador_ranking == "Efectos del ciberacoso":
-        efecto_ranking_nombre = st.selectbox("Efecto", list(mapeo_efectos_ciberacoso.values()))
-
-    resultados_ranking = []
-    
-    with st.spinner("Calculando ranking para las 32 entidades..."):
-        for estado in estados_unicos:
-            if indicador_ranking == "Uso de medidas de seguridad":
-                res = calcular_porcentaje(df, var_key_ranking, sexo_ranking, estado, "simple", anio=anio_ranking)
-                val = res["PORCENTAJE"].iloc[0] if not res.empty else 0.0
-            elif indicador_ranking == "Medidas de seguridad":
-                res = calcular_porcentaje(df, var_key_ranking, sexo_ranking, estado, "simple", anio=anio_ranking)
-                val = res["PORCENTAJE"].iloc[0] if not res.empty else 0.0
-            elif indicador_ranking == "Ciberacoso (General)":
-                res = calcular_porcentaje(df, var_key_ranking, sexo_ranking, estado, "cualquiera", anio=anio_ranking)
-                val = res["PORCENTAJE"].iloc[0] if not res.empty else 0.0
-            elif indicador_ranking == "Horas promedio de uso de internet":
-                res = calcular_horas_promedio_internet(df, estado, solo_victimas_ranking)
-                val_row = res[res["ANIO"] == anio_ranking]
-                val = val_row["HORAS_PROMEDIO"].iloc[0] if not val_row.empty else 0.0
-            elif indicador_ranking == "Efectos del ciberacoso":
-                res = calcular_efectos_ciberacoso(df, estado, anio_ranking, sexo_ranking)
-                val_row = res[res["EFECTO"] == efecto_ranking_nombre]
-                val = val_row["PORCENTAJE"].iloc[0] if not val_row.empty else 0.0
-                
-            resultados_ranking.append({"Entidad": estado, "Valor": round(val, 2)})
-            
-    df_ranking = pd.DataFrame(resultados_ranking)
-    df_ranking = df_ranking.sort_values(by="Valor", ascending=False).reset_index(drop=True)
-    df_ranking["Ranking"] = df_ranking.index + 1
-    df_ranking = df_ranking[["Ranking", "Entidad", "Valor"]]
-    
-    st.dataframe(df_ranking, width='stretch')
-    
-    st.bar_chart(
-        df_ranking.set_index("Entidad")["Valor"],
-        horizontal=True,
-        y_label="Valor del Indicador"
-    )
 
 else:
     if tipo_variable == "Uso de medidas de seguridad":
@@ -397,7 +363,6 @@ def calcular_porcentaje(df, variable_col, sexo, estado, tipo_calculo, edad_min=N
                 numerador = grupo.loc[grupo[variable_col] == 1, "FACTOR"].sum()
                 denominador = grupo.loc[grupo[variable_col].isin([1, 2]), "FACTOR"].sum()
             else:
-                import numpy as np
                 valores = grupo[variable_col].to_numpy()
                 mascara_ciberacoso = np.any(valores == 1, axis=1)
                 factores = grupo["FACTOR"].to_numpy()
@@ -415,7 +380,6 @@ def calcular_ciberacoso_por_escolaridad(df, variable_col, estado, anio):
     if estado != "NACIONAL":
         df_filtrado = df_filtrado[df_filtrado["NOM_ENT"] == estado]
     df_filtrado = df_filtrado[df_filtrado["NIVEL"].isin([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])]
-    import numpy as np
     valores = df_filtrado[variable_col].to_numpy()
     mascara_ciberacoso = np.any(valores == 1, axis=1)
     df_victimas = df_filtrado[mascara_ciberacoso].copy()
@@ -438,7 +402,6 @@ def calcular_horas_promedio_internet(df, estado, solo_victimas=False):
     df_filtrado = df_filtrado[df_filtrado["P7_4"] < 98]
     if solo_victimas:
         columnas_ciberacoso = [k for k in ciberacoso.keys() if k != "CUALQUIERA"]
-        import numpy as np
         valores = df_filtrado[columnas_ciberacoso].to_numpy()
         mascara_ciberacoso = np.any(valores == 1, axis=1)
         df_filtrado = df_filtrado[mascara_ciberacoso]
@@ -487,7 +450,6 @@ def calcular_victimas_conocian_agresor(df, p4_variable, numero_acoso, estado):
     columnas_ciberacoso = [k for k in ciberacoso.keys() if k != "CUALQUIERA"]
     resultados = []
     for anio, grupo in df_filtrado.groupby("ANIO"):
-        import numpy as np
         valores_ciber = grupo[columnas_ciberacoso].to_numpy()
         mascara_victima = np.any(valores_ciber == 1, axis=1)
         mascara_tipo_acoso = grupo[p4_variable].to_numpy() == 1
@@ -507,7 +469,6 @@ def calcular_edad_agresor_global(df, estado, anio):
     if estado != "NACIONAL":
         df_filtrado = df_filtrado[df_filtrado["NOM_ENT"] == estado]
     columnas_ciberacoso = [k for k in ciberacoso.keys() if k != "CUALQUIERA"]
-    import numpy as np
     valores_ciber = df_filtrado[columnas_ciberacoso].to_numpy()
     mascara_victima = np.any(valores_ciber == 1, axis=1)
     df_victimas = df_filtrado[mascara_victima].copy()
@@ -542,7 +503,6 @@ def calcular_efectos_ciberacoso(df, estado, anio, sexo):
     else:
         df_filtrado = df_filtrado[df_filtrado["SEXO"].isin([1, 2])]
     columnas_ciberacoso = [k for k in ciberacoso.keys() if k != "CUALQUIERA"]
-    import numpy as np
     valores_ciber = df_filtrado[columnas_ciberacoso].to_numpy()
     mascara_victima = np.any(valores_ciber == 1, axis=1)
     df_victimas = df_filtrado[mascara_victima].copy()
@@ -593,8 +553,16 @@ elif tipo_variable == "Horas promedio de uso de internet":
         resultado_2 = calcular_horas_promedio_internet(df, estado_2, solo_victimas)
         comparativa = pd.merge(resultado_1, resultado_2, on="ANIO", how="outer", suffixes=(f"_{estado_1}", f"_{estado_2}")).fillna(0)
         comparativa = comparativa.rename(columns={f"HORAS_PROMEDIO_{estado_1}": estado_1, f"HORAS_PROMEDIO_{estado_2}": estado_2})
-        comparativa = comparativa[["ANIO", estado_1, estado_2]]
         comparativa["Diferencia (horas)"] = round(comparativa[estado_1] - comparativa[estado_2], 2)
+        
+        # --- AGREGAR RANKING ---
+        df_ranking = obtener_ranking_horas(df, solo_victimas, estados_unicos)
+        rank_1 = df_ranking[df_ranking["ESTADO"] == estado_1][["ANIO", "RANKING"]].rename(columns={"RANKING": f"Ranking {estado_1}"})
+        rank_2 = df_ranking[df_ranking["ESTADO"] == estado_2][["ANIO", "RANKING"]].rename(columns={"RANKING": f"Ranking {estado_2}"})
+        comparativa = comparativa.merge(rank_1, on="ANIO", how="left").merge(rank_2, on="ANIO", how="left")
+        cols = ["ANIO", estado_1, estado_2, "Diferencia (horas)", f"Ranking {estado_1}", f"Ranking {estado_2}"]
+        comparativa = comparativa[[c for c in cols if c in comparativa.columns]]
+        
         titulo = "Horas Promedio - Solo Víctimas" if solo_victimas else "Horas Promedio - Población General"
         st.subheader(titulo)
         st.info("💡 Promedio ponderado de horas de uso de internet al día")
@@ -633,7 +601,6 @@ elif tipo_variable == "Víctimas que conocían al agresor":
         else:
             comparativa = pd.merge(resultado_1, resultado_2, on="ANIO", how="outer", suffixes=(f"_{estado_1}", f"_{estado_2}")).fillna(0)
             comparativa = comparativa.rename(columns={f"PORCENTAJE_{estado_1}": estado_1, f"PORCENTAJE_{estado_2}": estado_2})
-            comparativa = comparativa[["ANIO", estado_1, estado_2]]
             comparativa["Diferencia (pp)"] = round(comparativa[estado_1] - comparativa[estado_2], 2)
             st.subheader(f"Víctimas que Conocían al Agresor - {tipo_acoso_seleccionado}")
             st.info(f"💡 De todas las víctimas, ¿qué porcentaje sufrió '{tipo_acoso_seleccionado}' y conocía al agresor?")
@@ -671,12 +638,18 @@ elif tipo_variable == "Efectos del ciberacoso":
         if resultado_1.empty and resultado_2.empty:
             st.warning(f"⚠️ No se encontraron datos de efectos del ciberacoso.")
         else:
-            tabla_1 = resultado_1.set_index("EFECTO")
-            tabla_2 = resultado_2.set_index("EFECTO")
-            tabla_1.columns = [f"{col} - {estado_1}" for col in tabla_1.columns]
-            tabla_2.columns = [f"{col} - {estado_2}" for col in tabla_2.columns]
-            comparativa = pd.concat([tabla_1, tabla_2], axis=1).fillna(0).reset_index()
-            comparativa = comparativa.rename(columns={"index": "Efecto"})
+            comparativa = pd.merge(resultado_1, resultado_2, on="EFECTO", how="outer", suffixes=(f"_{estado_1}", f"_{estado_2}")).fillna(0)
+            comparativa = comparativa.rename(columns={f"PORCENTAJE_{estado_1}": estado_1, f"PORCENTAJE_{estado_2}": estado_2})
+            comparativa["Diferencia (pp)"] = round(comparativa[estado_1] - comparativa[estado_2], 2)
+            
+            # --- AGREGAR RANKING ---
+            df_ranking = obtener_ranking_efectos(df, sexo, anio_seleccionado, estados_unicos)
+            rank_1 = df_ranking[df_ranking["ESTADO"] == estado_1][["EFECTO", "RANKING"]].rename(columns={"RANKING": f"Ranking {estado_1}"})
+            rank_2 = df_ranking[df_ranking["ESTADO"] == estado_2][["EFECTO", "RANKING"]].rename(columns={"RANKING": f"Ranking {estado_2}"})
+            comparativa = comparativa.merge(rank_1, on="EFECTO", how="left").merge(rank_2, on="EFECTO", how="left")
+            cols = ["EFECTO", estado_1, estado_2, "Diferencia (pp)", f"Ranking {estado_1}", f"Ranking {estado_2}"]
+            comparativa = comparativa[[c for c in cols if c in comparativa.columns]]
+            
             st.subheader(f"Efectos del Ciberacoso - Año {anio_seleccionado} - {sexo}")
             st.info("💡 Los porcentajes pueden sumar más del 100% porque una víctima puede experimentar múltiples efectos.")
             st.dataframe(comparativa, width='stretch')
@@ -693,8 +666,17 @@ else:
         resultado_2 = calcular_porcentaje(df, variable_col, sexo, estado_2, tipo_calculo, edad_min, edad_max)
         comparativa = pd.merge(resultado_1, resultado_2, on="ANIO", how="outer", suffixes=(f"_{estado_1}", f"_{estado_2}")).fillna(0)
         comparativa = comparativa.rename(columns={f"PORCENTAJE_{estado_1}": estado_1, f"PORCENTAJE_{estado_2}": estado_2})
-        comparativa = comparativa[["ANIO", estado_1, estado_2]]
         comparativa["Diferencia (pp)"] = round(comparativa[estado_1] - comparativa[estado_2], 2)
+        
+        # --- AGREGAR RANKING ---
+        df_ranking = obtener_ranking_nacional(df, variable_col, sexo, tipo_calculo, edad_min, edad_max, estados_unicos)
+        rank_1 = df_ranking[df_ranking["ESTADO"] == estado_1][["ANIO", "RANKING"]].rename(columns={"RANKING": f"Ranking {estado_1}"})
+        rank_2 = df_ranking[df_ranking["ESTADO"] == estado_2][["ANIO", "RANKING"]].rename(columns={"RANKING": f"Ranking {estado_2}"})
+        comparativa = comparativa.merge(rank_1, on="ANIO", how="left").merge(rank_2, on="ANIO", how="left")
+        
+        cols = ["ANIO", estado_1, estado_2, "Diferencia (pp)", f"Ranking {estado_1}", f"Ranking {estado_2}"]
+        comparativa = comparativa[[c for c in cols if c in comparativa.columns]]
+
         titulo_subheader = f"{variable} - Rango: {edad_min}-{edad_max} años" if filtro_edad_activo else variable
         st.subheader(f"Comparativa: {titulo_subheader}")
         st.dataframe(comparativa, width='stretch')
