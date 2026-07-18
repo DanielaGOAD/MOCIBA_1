@@ -7,7 +7,7 @@ import gc
 
 # --- Grupo 1: Uso de medidas de seguridad
 uso_medidas_de_seguridad = {
-    "P1": "En la ciudad"
+    "P1": "En el Estado"
 }
 
 # --- Grupo 2: Medidas de seguridad
@@ -89,11 +89,7 @@ mapeo_entidades = {
 @st.cache_data(show_spinner="Cargando datos desde Google Drive...")
 def cargar_datos_base():
     file_ids = [
-        "1ojZcLZost0BM00yCGN8OLnu7XYyLpEYr",
-        "1v08-7Jx4Iw3msAkgb1m01Im49s8gqCqO",
-        "1WQj9dD8RUkAcTvwunTGkkT4FwDfh6-vi",
-        "1J49basZDca_rINW_h89q1aIZRIh2z4Ap",
-        "1nunUlKE7fj2XaNrYk9iI5uUBnIRBgE-6"
+        "1sfpjYSzb1RI0B_QjosxvNXz2iPJ69JNP"
     ]
 
     columnas_p5 = [f"P5_{i:02d}_{j}" for i in range(1, 14) for j in range(1, 4)]
